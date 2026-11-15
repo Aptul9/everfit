@@ -1,0 +1,5 @@
+# a capo Unix ovunque: gli script e il servizio girano su Linux, e cosi' non cambiano passando da Windows
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ico binary

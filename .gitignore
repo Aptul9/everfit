@@ -1,0 +1,26 @@
+# dati veri e credenziali: mai nel repository
+# (attenzione: app/public/data/ invece va tenuta, c'e' il catalogo plan.json)
+/data/
+/dati*/
+/app/data/
+/app/dati*/
+/app/deploy/data/
+/app/deploy/ollama/
+*.db
+*.db-wal
+*.db-shm
+*.db.*.copia
+accesso.env
+*.env
+config.json
+chiavi/
+
+# file generati da Python e dagli editor
+__pycache__/
+*.pyc
+.venv/
+venv/
+.claude/
+.vscode/
+.idea/
+*.log
