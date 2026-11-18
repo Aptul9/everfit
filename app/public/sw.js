@@ -94,7 +94,7 @@ self.addEventListener('push', (e) => {
       const r = await fetch('api/notifiche/prossime', { credentials: 'same-origin', cache: 'no-store' });
       if (r.ok) voci = (await r.json()).notifiche || [];
     } catch { /* senza rete: resta quella generica */ }
-    if (!voci.length) voci = [{ etichetta: 'fit', titolo: 'FitFuel', testo: 'C\'è una novità: apri l\'app.', dove: './' }];
+    if (!voci.length) voci = [{ etichetta: 'fit', titolo: 'EverFit', testo: 'C\'è una novità: apri l\'app.', dove: './' }];
     for (const v of voci) {
       await self.registration.showNotification(v.titolo, { body: v.testo, tag: v.etichetta, icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', data: { dove: v.dove || './' } });
     }

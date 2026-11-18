@@ -106,7 +106,7 @@ export function vistaProfilo(parti, rifai) {
     // la prima pesata: senza, i progressi non avrebbero un punto di partenza
     if (!M.pesate.length && pr.peso) salvaPesata(nuovaPesata({ peso: pr.peso, fonte: 'manuale', nota: 'Peso dichiarato al primo avvio' }));
     location.hash = '#/oggi';
-    avviso(primo ? `${pr.sesso === 'f' ? 'Benvenuta' : 'Benvenuto'} in FitFuel` : 'Fatto: l\'app è aggiornata');
+    avviso(primo ? `${pr.sesso === 'f' ? 'Benvenuta' : 'Benvenuto'} in EverFit` : 'Fatto: l\'app è aggiornata');
   };
   const avanti = () => {
     const errore = controlla(nome);
@@ -119,7 +119,7 @@ export function vistaProfilo(parti, rifai) {
   let corpo;
   if (nome === 'ciao') {
     corpo = [
-      h('div', { class: 'top grande' }, h('div', null, h('div', { class: 'sopra' }, `${b.sesso === 'f' ? 'Benvenuta' : 'Benvenuto'} in FitFuel`), h('h1', null, 'Ciao, ', h('em', null, io.nome)))),
+      h('div', { class: 'top grande' }, h('div', null, h('div', { class: 'sopra' }, `${b.sesso === 'f' ? 'Benvenuta' : 'Benvenuto'} in EverFit`), h('h1', null, 'Ciao, ', h('em', null, io.nome)))),
       h('p', { class: 'muto', style: { fontSize: '17px', lineHeight: 1.45 } }, scritto
         ? 'La tua dieta c\'è già. Prima di cominciare ti faccio qualche domanda: non tutti cerchiamo la stessa cosa, e l\'app si regola su di te.'
         : 'Qualche domanda su di te e ti preparo il piano: quanto mangiare ogni giorno, cosa, e come muoverti.'),

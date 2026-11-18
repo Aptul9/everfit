@@ -32,7 +32,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-UA = "FitFuel/1.0 (app personale di dieta)"
+UA = "EverFit/1.0 (app personale di dieta)"
 CAMPI = ("code,product_name,product_name_it,generic_name_it,brands,quantity,product_quantity,serving_size,serving_quantity,"
          "nutriments,image_front_url,image_front_small_url,image_url,"
          "nutriscore_grade,nova_group,additives_tags,allergens_tags,traces_tags,labels_tags,categories_tags,"
