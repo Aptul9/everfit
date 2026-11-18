@@ -4,8 +4,12 @@ updates:
     directory: /
     schedule:
       interval: weekly
-  # Dockerfile and Dockerfile.caddy: base images pinned by digest
+  # Dockerfile and Dockerfile.caddy: base images pinned by digest. Digest and patch updates come weekly; a new Python
+  # release is a deliberate change, not a dependency bump.
   - package-ecosystem: docker
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: python
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
