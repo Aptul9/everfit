@@ -113,14 +113,15 @@ ricarica il modello e rilegge tutto da capo.
 
 ## Pubblicarla
 
-L'app gira in container, costruiti e pubblicati solo dalla pipeline (`.github/workflows/ci-cd.yml`):
+L'app gira in container, costruiti una volta sola e pubblicati solo dalla pipeline (`.github/workflows/ci-cd.yml`):
 
-- `Dockerfile`: `python:3.12-slim` con `app/server` e `app/public` dentro l'immagine, utente 10001. L'unico volume è `/data`.
-- `Dockerfile.caddy` e `Caddyfile`: Caddy davanti all'app. Mette `X-Fit-Accesso: ok` solo sul percorso segreto (`FIT_PERCORSO`) e toglie l'intestazione ovunque altrove; serve `/.well-known/assetlinks.json` senza accesso.
-- `docker-compose.yml`: rootfs in sola lettura, `cap_drop: ALL`, `no-new-privileges`, healthcheck su `/api/health`. Ollama non c'è.
-- Su ogni PR: le prove del server (`ci/prove.py`, tollera solo i tre controlli sull'AI che falliscono anche a monte), la sintassi JavaScript, i due container con le restrizioni del compose e `ci/smoke.py` (accesso con il codice, percorso segreto, intestazione falsa ignorata).
-- Su `main`: `ci/deploy.sh` sulla VM, come root: release in `/opt/everfit/releases/<sha>`, dati in `/opt/everfit/data`, copia SQLite in `/opt/everfit/backups` prima di ogni riavvio, riga sslh per `fit.everbright.it` verso la porta 4450 (backup `/etc/sslh.cfg.pre-everfit`), poi `ci/smoke.py` sull'indirizzo pubblico.
-- `Rollback` (manuale): `previous` torna alla release prima, `disable` ferma l'app e toglie la riga sslh. I dati restano.
+- `Dockerfile`: `python:3.12-slim` fissata per digest, con `app/server` e `app/public` dentro l'immagine, utente 10001, healthcheck su `/api/health`. L'unico volume è `/data`.
+- `Dockerfile.caddy` e `Caddyfile`: Caddy fissato per digest davanti all'app. Mette `X-Fit-Accesso: ok` solo sul percorso segreto (`FIT_PERCORSO`) e toglie l'intestazione ovunque altrove; serve `/.well-known/assetlinks.json` senza accesso; HSTS, Permissions-Policy e CSP. Gli hash degli script in linea della CSP vengono da `ci/csp.py`: se `index.html` o la pagina d'accesso cambiano uno script, `ci/test_deploy.py` fallisce finché la CSP non è aggiornata.
+- `docker-compose.yml`: avvia le immagini per tag (`pull_policy: never`), rootfs in sola lettura, `cap_drop: ALL`, `no-new-privileges`. Ollama non c'è.
+- Su ogni PR: le prove del server (`ci/prove.py`, devono passare tutte), la sintassi JavaScript, le due immagini costruite e avviate con le restrizioni del compose, poi `ci/smoke.py` (accesso con il codice, percorso segreto, intestazione falsa ignorata).
+- Su `main`: il job `guard` rifiuta un commit arrivato senza pull request (GitHub Free non protegge i rami dei repository privati). Le immagini provate vanno sulla VM con `docker save`/`docker load`; `ci/deploy.sh` controlla che il digest della configurazione sia quello provato, fa la copia SQLite in `/opt/everfit/backups` (14 giorni, almeno le ultime tre), aggiunge la riga sslh per `fit.everbright.it` verso la porta 4450 (backup `/etc/sslh.cfg.pre-everfit`), avvia per tag e tiene le ultime tre release con le loro immagini. Poi `ci/smoke.py` sull'indirizzo pubblico.
+- Backup notturno: `everfit-backup.service` parte con `backup-dati.service` (03:30) e scrive `/var/backups/vm-dati/everfit-<data>.tar.zst` (ultimi 14), ogni archivio ripristinato e controllato prima di valere.
+- `Rollback` (manuale): `previous` riavvia il tag della release prima, `disable` ferma l'app e toglie la riga sslh. I dati restano.
 
 Segreti del repository: `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS`, `FIT_CODICE`, `FIT_PERCORSO`. La chiave VAPID delle notifiche la crea il server in `/data/vapid.key`.
 
@@ -138,9 +139,9 @@ python tools/prove/prova_spinta.py            # la firma delle notifiche, contro
 python ../desktop/bilancia.py prova           # il protocollo della bilancia, senza Bluetooth
 ```
 
-Al 15/11/2026 tre controlli di `prova_server.py` sull'AI non tornano, anche nel progetto da cui viene questa copia:
-la lunghezza delle istruzioni di base, il passaggio al modello di riserva e il ritorno a Gemini. Le prove non sono
-state aggiornate quando la chat è passata subito al modello leggero di Gemini. Tutto il resto passa.
+Passano tutte. I tre controlli sull'AI che non tornavano a monte (15/11/2026) sono stati aggiornati: le istruzioni di
+base si confrontano in proporzione a quelle complete, la chat va subito al modello leggero di Gemini senza aspettare
+il principale, e "Prova" rimette il servizio in testa anche nella fila dell'assistente (`assistente.rimetti`).
 
 ## Note
 

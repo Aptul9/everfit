@@ -1,14 +1,19 @@
 #!/usr/bin/env bash
+# Runs on the VM as root, from the release bundle CI copied to /opt/everfit. Starts the images CI built and tested
+# (loaded with docker load, checked by image ID): nothing is built or pulled here.
 set -euo pipefail
 umask 077
 
 BASE=/opt/everfit
 DOMAIN=fit.everbright.it
 OTHERS="push drive servizi calendar meet teams flow"
+KEEP_RELEASES=3
 RELEASE=${1:?release SHA required}
 [[ "$RELEASE" =~ ^[a-f0-9]{40}$ ]] || exit 1
 cd "$BASE"
 test -s release.tar.gz
+test -s images.tar.gz
+test -s image-ids
 test -s environment.new
 
 # Shape of the secrets, without printing them: an empty path would turn "//" into an admin route.
@@ -17,33 +22,43 @@ grep -Eq '^FIT_PERCORSO=[A-Za-z0-9_-]{32,}$' environment.new
 test "$(wc -l < environment.new)" -eq 2
 
 install -d -m 700 -o 10001 -g 10001 data
-install -d -m 700 backups
+install -d -m 700 backups bin
 install -d -m 755 releases
 NEXT="$BASE/releases/$RELEASE"
 rm -rf "$NEXT"
 install -d -m 755 "$NEXT"
 tar xzf release.tar.gz -C "$NEXT"
-chmod -R a+rX "$NEXT"
 mv -f environment.new .env
 chmod 600 .env
-export RELEASE
 
+gunzip -c images.tar.gz | docker load
+# image-ids holds the config digests CI read from the archive of the images it tested.
+while read -r image config; do
+  actual=$(docker save "$image" | tar -xO manifest.json | python3 "$NEXT/ci/image_config.py" | awk -v t="$image" '$1 == t { print $2 }')
+  if [ "$actual" != "$config" ]; then
+    echo "$image has config $actual, CI tested $config: refusing to deploy" >&2
+    exit 1
+  fi
+  echo "$image $config matches the tested image"
+done < image-ids
+cp image-ids "$NEXT/image-ids"
+rm -f images.tar.gz image-ids
+
+export RELEASE
 compose() { docker compose --project-directory "$NEXT" --env-file "$BASE/.env" "$@"; }
 compose config --quiet
-compose build --pull
 
 if test -s data/fit.db; then
   # SQLite online backup (the database is in WAL mode: a file copy could lose the last writes).
   backup="backups/fit.db.$(date -u +%Y%m%dT%H%M%SZ).${RELEASE:0:12}"
-  python3 - "$BASE/data/fit.db" "$BASE/$backup" <<'PY'
-import sqlite3, sys
-with sqlite3.connect(sys.argv[1]) as source, sqlite3.connect(sys.argv[2]) as target:
-    source.backup(target)
-    assert target.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
-PY
+  sqlite3 data/fit.db ".backup '$backup'"
+  test "$(sqlite3 "$backup" 'PRAGMA integrity_check;')" = ok
   echo "Database backup: $BASE/$backup"
-  ls -1t backups/fit.db.* | tail -n +11 | xargs -r rm -f
 fi
+# Pre-deploy copies: 14 days, never fewer than the newest three.
+ls -1t backups/fit.db.* 2>/dev/null | tail -n +4 | while read -r old; do
+  if [ -n "$(find "$old" -mtime +14)" ]; then rm -f "$old"; fi
+done
 if test -L app; then readlink -f app > previous-release; fi
 printf '%s\n' "$NEXT" > candidate-release
 
@@ -81,8 +96,18 @@ for name in $OTHERS; do
 done
 test "$failed" = 0
 
-# Keep the last five releases and their images.
-ls -1dt releases/*/ | tail -n +6 | while read -r old; do
+# Nightly backup: own unit, started by the shared backup-dati.service, which stays untouched.
+install -m 700 "$NEXT/ci/backup.sh" bin/backup.sh
+install -m 644 "$NEXT/ci/everfit-backup.service" /etc/systemd/system/everfit-backup.service
+install -d -m 755 /etc/systemd/system/backup-dati.service.d
+printf '[Unit]\nWants=everfit-backup.service\n' > /etc/systemd/system/backup-dati.service.d/everfit.conf
+chmod 644 /etc/systemd/system/backup-dati.service.d/everfit.conf
+systemctl daemon-reload
+systemctl start everfit-backup.service
+journalctl -u everfit-backup.service -n 1 --no-pager -o cat
+
+# Keep the newest releases and their images; the current and previous one are always among them.
+ls -1dt releases/*/ | tail -n +$((KEEP_RELEASES + 1)) | while read -r old; do
   old=${old%/}
   test "$old" = "releases/$RELEASE" && continue
   docker image rm "everfit:${old##*/}" "everfit-web:${old##*/}" >/dev/null 2>&1 || true

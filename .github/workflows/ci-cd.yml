@@ -1,5 +1,8 @@
 name: CI/CD
 
+# Every pull request and push: tests, then the two images are built once, run with the production restrictions and
+# smoke-tested. On main, only a commit that came from a merged pull request is deployed: the tested images travel to
+# the VM with docker save/load and are started by tag after their config digests match. Nothing is built on the VM.
 on:
   push:
     branches: [main]
@@ -14,15 +17,17 @@ jobs:
     name: Tests and containers
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      RELEASE: ${{ github.sha }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
       - name: Deployment tests
         run: |
           python -m unittest discover -s ci -p 'test_*.py'
-          bash -n ci/deploy.sh ci/rollback.sh
+          bash -n ci/deploy.sh ci/rollback.sh ci/backup.sh
       - name: Upstream test suites
         run: python ci/prove.py
       - name: JavaScript syntax
@@ -45,28 +50,32 @@ jobs:
                   print('::add-mask::' + value)
                   output.write(name + '=' + value + '\n')
           PY
-      - name: Production containers with compose restrictions
+      - name: Build images
+        run: |
+          docker build --pull -t "everfit:$RELEASE" .
+          docker build --pull -f Dockerfile.caddy -t "everfit-web:$RELEASE" .
+          docker run --rm -e FIT_PERCORSO -e FIT_TLS=internal "everfit-web:$RELEASE" caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+      - name: Run the images with the compose restrictions
         env:
           FIT_DOMINIO: fit.test
           FIT_TLS: internal
           HTTPS_PORT: "4450"
-          RELEASE: ci
         run: |
           echo '127.0.0.1 fit.test' | sudo tee -a /etc/hosts
           export FIT_DATA_DIR=$(mktemp -d)
           sudo chown 10001:10001 "$FIT_DATA_DIR"
           sudo chmod 700 "$FIT_DATA_DIR"
           docker compose config --quiet
-          docker compose build
-          docker compose run --rm --no-deps web caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
           trap 'docker compose logs --tail 40; docker compose down -v' EXIT
           docker compose up -d --wait --wait-timeout 120
           python ci/smoke.py --url https://fit.test:4450 --insecure
-          app=$(docker compose ps -q app)
-          docker inspect "$app" --format '{{.HostConfig.ReadonlyRootfs}} {{.HostConfig.CapDrop}} {{.HostConfig.SecurityOpt}} {{.Config.User}} {{.State.Health.Status}}' | tee inspect.txt
-          grep -qx 'true \[ALL\] \[no-new-privileges:true\] 10001:10001 healthy' inspect.txt
-          mounts=$(docker inspect "$app" --format '{{range .Mounts}}{{.Destination}} {{end}}')
-          echo "Mounts: $mounts"
+          for service in app web; do
+            container=$(docker compose ps -q "$service")
+            docker inspect "$container" --format '{{.HostConfig.ReadonlyRootfs}} {{.HostConfig.CapDrop}} {{.HostConfig.SecurityOpt}} {{.Config.User}} {{.State.Health.Status}}' | tee inspect.txt
+            grep -qx 'true \[ALL\] \[no-new-privileges:true\] 10001:10001 healthy' inspect.txt
+          done
+          mounts=$(docker inspect "$(docker compose ps -q app)" --format '{{range .Mounts}}{{.Destination}} {{end}}')
+          echo "App mounts: $mounts"
           test "$mounts" = '/data '
           if docker compose exec -T app touch /app/server/x 2>/dev/null; then echo 'Code is writable' >&2; exit 1; fi
           sudo test -s "$FIT_DATA_DIR/fit.db"
@@ -74,11 +83,46 @@ jobs:
             echo 'Containers emitted runtime errors' >&2
             exit 1
           fi
+      - name: Package the tested images
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          mkdir bundle
+          docker save "everfit:$RELEASE" "everfit-web:$RELEASE" -o images.tar
+          tar -xOf images.tar manifest.json | python ci/image_config.py | tee bundle/image-ids
+          test "$(wc -l < bundle/image-ids)" = 2
+          gzip -c images.tar > bundle/images.tar.gz
+          git archive --format=tar.gz HEAD docker-compose.yml ci > bundle/release.tar.gz
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          name: release
+          path: bundle
+          retention-days: 7
+          if-no-files-found: error
+
+  guard:
+    name: Came from a pull request
+    # GitHub Free returns 403 for branch protection on private repositories: this job stands in for it.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Merged pull request into main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          n=$(gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/pulls" --jq '[.[] | select(.merged_at != null and .base.ref == "main")] | length')
+          if [ "$n" -lt 1 ]; then
+            echo "::error::${{ github.sha }} reached main without a merged pull request: not deployed"
+            exit 1
+          fi
 
   deploy:
     name: Deploy
-    needs: check
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: [check, guard]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment:
@@ -90,7 +134,11 @@ jobs:
     env:
       TARGET: ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release
+          path: bundle
       - name: SSH configuration
         env:
           SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
@@ -100,20 +148,19 @@ jobs:
           printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
-      - name: Prepare release and runtime inputs
+      - name: Copy images, release and runtime inputs
         env:
           FIT_CODICE: ${{ secrets.FIT_CODICE }}
           FIT_PERCORSO: ${{ secrets.FIT_PERCORSO }}
         run: |
           test -n "$FIT_CODICE" && test -n "$FIT_PERCORSO"
           umask 077
-          git archive --format=tar.gz HEAD > release.tar.gz
-          printf 'FIT_CODICE=%s\nFIT_PERCORSO=%s\n' "$FIT_CODICE" "$FIT_PERCORSO" > environment.new
+          printf 'FIT_CODICE=%s\nFIT_PERCORSO=%s\n' "$FIT_CODICE" "$FIT_PERCORSO" > bundle/environment.new
           ssh "$TARGET" 'install -d -m 700 /opt/everfit'
-          scp release.tar.gz environment.new "$TARGET:/opt/everfit/"
+          scp bundle/release.tar.gz bundle/images.tar.gz bundle/image-ids bundle/environment.new "$TARGET:/opt/everfit/"
       - name: Deploy from versioned script
         run: ssh "$TARGET" "set -e; tar xzf /opt/everfit/release.tar.gz -C /opt/everfit ci/deploy.sh; bash /opt/everfit/ci/deploy.sh '$GITHUB_SHA'"
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
       - name: Public application checks

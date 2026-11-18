@@ -1,11 +1,10 @@
 name: everfit
 
+# Images are built and tested in CI, shipped with docker save/load and started by tag: never built or pulled here.
 services:
   app:
-    image: everfit:${RELEASE:-local}
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: everfit:${RELEASE:?RELEASE required}
+    pull_policy: never
     environment:
       FIT_CODICE: ${FIT_CODICE:?FIT_CODICE required}
       FIT_SITO: https://${FIT_DOMINIO:-fit.everbright.it}
@@ -25,17 +24,9 @@ services:
       options:
         max-size: 10m
         max-file: "3"
-    healthcheck:
-      test: [CMD, python, -c, "import sys, urllib.request as u; sys.exit(0 if u.urlopen('http://127.0.0.1:8080/api/health', timeout=3).status == 200 else 1)"]
-      interval: 15s
-      timeout: 5s
-      retries: 4
-      start_period: 10s
   web:
-    image: everfit-web:${RELEASE:-local}
-    build:
-      context: .
-      dockerfile: Dockerfile.caddy
+    image: everfit-web:${RELEASE:?RELEASE required}
+    pull_policy: never
     environment:
       DOMAIN: ${FIT_DOMINIO:-fit.everbright.it}
       FIT_TLS: ${FIT_TLS:-acme}

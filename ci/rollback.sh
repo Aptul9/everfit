@@ -19,6 +19,8 @@ test -s "$BASE/previous-release"
 PREVIOUS=$(cat "$BASE/previous-release")
 case "$PREVIOUS" in "$BASE"/releases/*) ;; *) exit 1 ;; esac
 export RELEASE=${PREVIOUS##*/}
+# Images of the last three releases stay on the VM (deploy.sh): the previous tag starts as it was tested.
+docker image inspect "everfit:$RELEASE" "everfit-web:$RELEASE" > /dev/null
 docker compose --project-directory "$PREVIOUS" --env-file "$BASE/.env" up -d --wait --wait-timeout 120 --remove-orphans
 ln -sfn "$PREVIOUS" "$BASE/app.next"
 mv -Tf "$BASE/app.next" "$BASE/app"
