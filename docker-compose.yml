@@ -1,0 +1,67 @@
+name: everfit
+
+services:
+  app:
+    image: everfit:${RELEASE:-local}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      FIT_CODICE: ${FIT_CODICE:?FIT_CODICE required}
+      FIT_SITO: https://${FIT_DOMINIO:-fit.everbright.it}
+      FIT_FUSO: Europe/Rome
+    volumes:
+      - ${FIT_DATA_DIR:-/opt/everfit/data}:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=67108864,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    mem_limit: 256m
+    pids_limit: 200
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+    healthcheck:
+      test: [CMD, python, -c, "import sys, urllib.request as u; sys.exit(0 if u.urlopen('http://127.0.0.1:8080/api/health', timeout=3).status == 200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 10s
+  web:
+    image: everfit-web:${RELEASE:-local}
+    build:
+      context: .
+      dockerfile: Dockerfile.caddy
+    environment:
+      DOMAIN: ${FIT_DOMINIO:-fit.everbright.it}
+      FIT_TLS: ${FIT_TLS:-acme}
+      FIT_PERCORSO: ${FIT_PERCORSO:?FIT_PERCORSO required}
+    ports:
+      - 127.0.0.1:${HTTPS_PORT:-4450}:8443
+    volumes:
+      - certificates:/data
+      - caddy_config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:size=33554432,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+    mem_limit: 256m
+    pids_limit: 100
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "2"
+
+volumes:
+  certificates:
+  caddy_config:

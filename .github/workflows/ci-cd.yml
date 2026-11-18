@@ -1,0 +1,123 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Tests and containers
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12"
+      - name: Deployment tests
+        run: |
+          python -m unittest discover -s ci -p 'test_*.py'
+          bash -n ci/deploy.sh ci/rollback.sh
+      - name: Upstream test suites
+        run: python ci/prove.py
+      - name: JavaScript syntax
+        run: |
+          scratch=$(mktemp -d)
+          git ls-files 'app/public/*.js' | while read -r file; do
+            cp "$file" "$scratch/check.mjs"
+            node --check "$scratch/check.mjs" || { echo "Syntax error in $file" >&2; exit 1; }
+          done
+      - name: Isolated test credentials
+        run: |
+          python - <<'PY'
+          import os, secrets, string
+          values = {
+              'FIT_CODICE': ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(20)),
+              'FIT_PERCORSO': secrets.token_urlsafe(32),
+          }
+          with open(os.environ['GITHUB_ENV'], 'a') as output:
+              for name, value in values.items():
+                  print('::add-mask::' + value)
+                  output.write(name + '=' + value + '\n')
+          PY
+      - name: Production containers with compose restrictions
+        env:
+          FIT_DOMINIO: fit.test
+          FIT_TLS: internal
+          HTTPS_PORT: "4450"
+          RELEASE: ci
+        run: |
+          echo '127.0.0.1 fit.test' | sudo tee -a /etc/hosts
+          export FIT_DATA_DIR=$(mktemp -d)
+          sudo chown 10001:10001 "$FIT_DATA_DIR"
+          sudo chmod 700 "$FIT_DATA_DIR"
+          docker compose config --quiet
+          docker compose build
+          docker compose run --rm --no-deps web caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+          trap 'docker compose logs --tail 40; docker compose down -v' EXIT
+          docker compose up -d --wait --wait-timeout 120
+          python ci/smoke.py --url https://fit.test:4450 --insecure
+          app=$(docker compose ps -q app)
+          docker inspect "$app" --format '{{.HostConfig.ReadonlyRootfs}} {{.HostConfig.CapDrop}} {{.HostConfig.SecurityOpt}} {{.Config.User}} {{.State.Health.Status}}' | tee inspect.txt
+          grep -qx 'true \[ALL\] \[no-new-privileges:true\] 10001:10001 healthy' inspect.txt
+          mounts=$(docker inspect "$app" --format '{{range .Mounts}}{{.Destination}} {{end}}')
+          echo "Mounts: $mounts"
+          test "$mounts" = '/data '
+          if docker compose exec -T app touch /app/server/x 2>/dev/null; then echo 'Code is writable' >&2; exit 1; fi
+          sudo test -s "$FIT_DATA_DIR/fit.db"
+          if docker compose logs app web 2>&1 | grep -E 'Traceback|"level":"error"'; then
+            echo 'Containers emitted runtime errors' >&2
+            exit 1
+          fi
+
+  deploy:
+    name: Deploy
+    needs: check
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: production
+      url: https://fit.everbright.it
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    env:
+      TARGET: ${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: SSH configuration
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+      - name: Prepare release and runtime inputs
+        env:
+          FIT_CODICE: ${{ secrets.FIT_CODICE }}
+          FIT_PERCORSO: ${{ secrets.FIT_PERCORSO }}
+        run: |
+          test -n "$FIT_CODICE" && test -n "$FIT_PERCORSO"
+          umask 077
+          git archive --format=tar.gz HEAD > release.tar.gz
+          printf 'FIT_CODICE=%s\nFIT_PERCORSO=%s\n' "$FIT_CODICE" "$FIT_PERCORSO" > environment.new
+          ssh "$TARGET" 'install -d -m 700 /opt/everfit'
+          scp release.tar.gz environment.new "$TARGET:/opt/everfit/"
+      - name: Deploy from versioned script
+        run: ssh "$TARGET" "set -e; tar xzf /opt/everfit/release.tar.gz -C /opt/everfit ci/deploy.sh; bash /opt/everfit/ci/deploy.sh '$GITHUB_SHA'"
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: "3.12"
+      - name: Public application checks
+        env:
+          FIT_CODICE: ${{ secrets.FIT_CODICE }}
+          FIT_PERCORSO: ${{ secrets.FIT_PERCORSO }}
+        run: python ci/smoke.py --url https://fit.everbright.it

@@ -1,0 +1,6 @@
+FROM caddy:2.11.4-alpine
+RUN setcap -r /usr/bin/caddy && chown -R 10001:10001 /data /config
+COPY Caddyfile /etc/caddy/Caddyfile
+# Only /.well-known/assetlinks.json is served from this copy (Android app links, anonymous); the rest goes to the app.
+COPY app/public /srv/public
+USER 10001:10001
