@@ -16,6 +16,7 @@ import { vistaProfilo } from './views/profilo.js';
 import { apriScanner } from './views/prodotto.js';
 import { apriAssistente, riprendiAssistente } from './views/assistente.js';
 import { allineaNotifiche } from './notifiche.js';
+import { controllaApk } from './apk.js';
 
 const app = document.getElementById('app');         // e' lui che scorre, non la pagina
 const barraSu = document.getElementById('barra-su');
@@ -305,6 +306,7 @@ async function avvia() {
   // adesso, e il tocco su una notifica di FitAI: apre la conversazione
   riprendiAssistente();
   allineaNotifiche();
+  controllaApk();
   if (/[?&]apri=fitai\b/.test(location.search)) {
     history.replaceState(null, '', location.pathname + location.hash);
     setTimeout(() => apriAssistente(), 700);
