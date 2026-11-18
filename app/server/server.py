@@ -962,6 +962,8 @@ class Fit(BaseHTTPRequestHandler):
             return self._json(401, {"errore": "serve il codice di accesso"})
         if metodo in ("GET", "HEAD") and (path.startswith("/icons/") or path == "/manifest.webmanifest"):
             return self._statico(path)   # icona e nome dell'app servono anche alla pagina del codice
+        if metodo in ("GET", "HEAD") and path == "/.well-known/assetlinks.json":
+            return self._statico(path)   # Google lo legge senza cookie per legare l'app Android al sito
         # 401 e non 200: cosi' il service worker non scambia questa pagina per l'app e non la mette da parte
         return self._send(401, accesso.pagina(), "text/html; charset=utf-8")
 
@@ -1281,7 +1283,9 @@ class Fit(BaseHTTPRequestHandler):
             # l'icona sulla Home dell'iPhone non vede i cookie di Safari: parte con una chiave nell'indirizzo
             # (dopo il #) e la pagina del codice la scambia con un cookie suo, senza chiedere niente
             manifest = json.loads(body)
-            manifest["start_url"] = "./#k=" + self.dati.chiave_casa(self.io["id"], self.gettone)
+            # la query resta (l'app Android ci mette ?apk=<versione>), il # di prima no
+            inizio = str(manifest.get("start_url") or "./").split("#", 1)[0]
+            manifest["start_url"] = inizio + "#k=" + self.dati.chiave_casa(self.io["id"], self.gettone)
             return self._send(200, json.dumps(manifest, ensure_ascii=False).encode("utf-8"), "application/manifest+json; charset=utf-8")
         immagine = rel.startswith(("img/", "icons/"))
         cache = "public, max-age=604800" if immagine else "no-cache"
