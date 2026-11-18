@@ -9,10 +9,10 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="FitFuel">
-<meta name="application-name" content="FitFuel">
+<meta name="apple-mobile-web-app-title" content="EverFit">
+<meta name="application-name" content="EverFit">
 <meta name="format-detection" content="telephone=no">
-<title>FitFuel</title>
+<title>EverFit</title>
 <!-- use-credentials: il manifest porta l'indirizzo di avvio dell'icona sulla Home, diverso per ogni account (server/accesso.py) -->
 <link rel="manifest" href="manifest.webmanifest" crossorigin="use-credentials">
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
@@ -69,7 +69,7 @@ body { margin: 0; }
     <path fill="url(#ben-g)" fill-rule="evenodd" d="M53 5C55 22 78 33 78 58C78 77 65 93 50 93C35 93 22 78 22 61C22 49 28 39 37 31C38 41 42 47 48 48C43 34 46 17 53 5ZM50 84C42 84 36.5 78 36.5 70.5C36.5 62 44 58.5 47.5 50C50 58 63.5 62 63.5 72.5C63.5 79.5 57.5 84 50 84Z"/>
   </svg>
   <div class="ciao"><small id="ben-saluto"></small><b id="ben-nome"></b></div>
-  <div class="firma"><strong>Fit<i>Fuel</i></strong>Interamente sviluppata da <u>DIEFFE di Daniele Fortunio</u><br>&copy; 2026 &middot; Tutti i diritti riservati</div>
+  <div class="firma"><strong>Ever<i>Fit</i></strong>Interamente sviluppata da <u>DIEFFE di Daniele Fortunio</u><br>&copy; 2026 &middot; Tutti i diritti riservati</div>
 </div>
 <script>
 // Il saluto si scrive subito, prima che arrivi il resto dell'app: il nome sta in memoria (fit.io) o nel cookie fitn.
@@ -79,7 +79,7 @@ body { margin: 0; }
   nome = io.nome || '';
   if (!nome) { var m = /(?:^|; )fitn=([^;]*)/.exec(document.cookie); if (m) { try { nome = decodeURIComponent(m[1]); } catch (e) {} } }
   // al primo ingresso non si sa ancora se e' un uomo o una donna: "Ciao" va bene per tutti
-  document.getElementById('ben-saluto').textContent = !io.id ? (nome ? 'Ciao' : 'Benvenuto in FitFuel') : io.sesso === 'f' ? 'Bentornata' : 'Bentornato';
+  document.getElementById('ben-saluto').textContent = !io.id ? (nome ? 'Ciao' : 'Benvenuto in EverFit') : io.sesso === 'f' ? 'Bentornata' : 'Bentornato';
   document.getElementById('ben-nome').textContent = nome;
   // se la pagina si e' appena ricaricata da sola per prendere una versione nuova, il saluto non si ripete per intero
   try { dopoAggiornamento = Number(sessionStorage.getItem('fit.ricarica') || 0); } catch (e) {}

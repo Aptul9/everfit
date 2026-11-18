@@ -319,8 +319,9 @@ try:
         s, j, *_ = livello("ciao", "base")
         corte = lunghe(j)
         s, j, *_ = livello("ciao", "tutto")
-        # (dal 26/10/2026 le regole su foto, correzioni e dosi di oggi le portano a circa 9.800 caratteri)
-        controlla("livelli: le istruzioni di base sono molto piu' corte", 0 < corte < 11000 < lunghe(j), (corte, lunghe(j)))
+        # (misurate il 18/11/2026: 13.342 caratteri di base, 18.953 con tutto; le regole aggiunte dal 26/10 hanno superato
+        # la vecchia soglia fissa di 11.000, quindi conta il rapporto)
+        controlla("livelli: le istruzioni di base sono molto piu' corte", 0 < corte <= 0.75 * lunghe(j), (corte, lunghe(j)))
         s, j, *_ = livello("servetutto cambia la scheda", "base")
         controlla("livello base: l'assistente chiede i dati completi", s == 200 and j == {"serve": "tutto"}, (s, j))
         s, j, *_ = livello("servetutto cambia la scheda", "tutto")
@@ -329,9 +330,10 @@ try:
         controlla("livello sconosciuto: vale come base", s == 200 and lunghe(j) == corte, (s, j))
         # ---- il limite del servizio gratuito
         # (per primo: dopo che il modello principale ha detto basta o e' rimasto muto, per dieci minuti non lo si aspetta piu')
+        # (la chat va subito al modello leggero, cibo.GEMINI_CHAT_LEGGERO: il principale muto non si aspetta affatto)
         inizio = time.time()
         s, j, *_ = chat("appeso ciao")
-        controlla("modello principale muto: dopo l'attesa risponde quello di riserva", s == 200 and "flash-lite]" in j.get("testo", "") and 1.5 < time.time() - inizio < 4.5,
+        controlla("modello principale muto: la chat non lo aspetta, risponde il leggero", s == 200 and "flash-lite]" in j.get("testo", "") and time.time() - inizio < 1.5,
                   (s, j, round(time.time() - inizio, 1)))
         s, j, *_ = chat("limite429 ciao")
         controlla("limite sul modello principale: risponde quello di riserva", s == 200 and "flash-lite]" in j.get("testo", ""), (s, j))

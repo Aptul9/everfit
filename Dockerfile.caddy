@@ -1,0 +1,8 @@
+FROM caddy:2.11.9-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0
+RUN setcap -r /usr/bin/caddy && chown -R 10001:10001 /data /config
+COPY Caddyfile /etc/caddy/Caddyfile
+# Only /.well-known/assetlinks.json is served from this copy (Android app links, anonymous); the rest goes to the app.
+COPY app/public /srv/public
+USER 10001:10001
+HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=4 \
+  CMD ["wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8079/"]

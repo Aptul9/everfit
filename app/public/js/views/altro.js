@@ -344,10 +344,10 @@ function notifiche(rifai) {
   const cosa = 'Ti avviso quando FitAI ha risposto e l\'app è chiusa, e se a pranzo o a cena non hai segnato il pasto.';
   if (!possibili() || nt.stato === 'no') {
     return h('div', { class: 'card' }, testa('Non disponibili qui', iphoneFuoriDallaHome()
-      ? 'Sull\'iPhone le notifiche arrivano solo aprendo FitFuel dall\'icona sulla schermata Home: in Safari tocca Condividi, poi «Aggiungi alla schermata Home», e torna qui da lì.'
-      : 'Questo browser non sa ricevere le notifiche di FitFuel.'));
+      ? 'Sull\'iPhone le notifiche arrivano solo aprendo EverFit dall\'icona sulla schermata Home: in Safari tocca Condividi, poi «Aggiungi alla schermata Home», e torna qui da lì.'
+      : 'Questo browser non sa ricevere le notifiche di EverFit.'));
   }
-  if (nt.stato === 'negate') return h('div', { class: 'card' }, testa('Bloccate', 'Le hai bloccate dal telefono: si riattivano da Impostazioni → Notifiche → FitFuel.'));
+  if (nt.stato === 'negate') return h('div', { class: 'card' }, testa('Bloccate', 'Le hai bloccate dal telefono: si riattivano da Impostazioni → Notifiche → EverFit.'));
   if (nt.stato !== 'attive') {
     return h('div', { class: 'card' }, testa('Spente', cosa),
       h('button', { class: 'btn primo', disabled: nt.occupato || nt.stato == null, onclick: () => con(attivaNotifiche, 'Notifiche attive') }, icona('check'), nt.occupato ? 'Un attimo…' : 'Attiva le notifiche'));
@@ -384,7 +384,7 @@ function passi(rifai) {
   };
   const passo = (...parti) => h('li', null, h('span', null, ...parti));
   const istruzioni = h('ol', { class: 'passi passi-comando' },
-    passo('Apri l\'app ', h('b', null, 'Comandi'), ' e tocca ', h('b', null, '+'), ' per un comando nuovo. Chiamalo «Passi FitFuel».'),
+    passo('Apri l\'app ', h('b', null, 'Comandi'), ' e tocca ', h('b', null, '+'), ' per un comando nuovo. Chiamalo «Passi EverFit».'),
     passo('Aggiungi l\'azione ', h('b', null, 'Trova campioni di salute'), '. Tipo: ', h('b', null, 'Passi'), '; filtro «Data di inizio» ',
       h('b', null, 'è oggi'), '; «Raggruppa per» ', h('b', null, 'Giorno'), ' (così i passi di iPhone e Watch non si contano due volte).'),
     passo('Aggiungi l\'azione ', h('b', null, 'Ottieni contenuto dell\'URL'), ' e incolla l\'indirizzo qui sotto. Apri le altre opzioni: metodo ',
@@ -393,7 +393,7 @@ function passi(rifai) {
       ': tocca il valore, scegli la variabile «Campioni di salute», toccala di nuovo e scegli ', h('b', null, 'Valore'), '.'),
     passo('Tocca ▶︎ per provarlo: la prima volta l\'iPhone chiede di leggere i passi da Salute, rispondi Consenti. Qui deve comparire «Ultimo invio».'),
     passo('Per farlo andare da solo: scheda ', h('b', null, 'Automazione'), ', ', h('b', null, '+'), ', ', h('b', null, 'Ora del giorno'),
-      ' (per esempio 22:00, ogni giorno), ', h('b', null, 'Esegui immediatamente'), ', e scegli «Passi FitFuel». Per vederli anche di giorno aggiungi altre ore.'));
+      ' (per esempio 22:00, ogni giorno), ', h('b', null, 'Esegui immediatamente'), ', e scegli «Passi EverFit». Per vederli anche di giorno aggiungi altre ore.'));
   const testa = h('div', { class: 'riga', style: { marginBottom: '12px' } },
     tessera('walk', !!ps.stato?.attivo),
     h('div', { class: 'cresce' },

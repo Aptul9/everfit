@@ -517,7 +517,7 @@ class Dati:
                     giorno = {}
                 segnato = bool((giorno.get("pasti") or {}).get(pasto)) or any(isinstance(e, dict) and e.get("mom") == pasto for e in giorno.get("extra") or [])
                 if not segnato:
-                    self.avvisa(t["utente"], etichetta, titolo, "Segna %s su FitFuel: basta un tocco." % cosa, "./#/oggi")
+                    self.avvisa(t["utente"], etichetta, titolo, "Segna %s su EverFit: basta un tocco." % cosa, "./#/oggi")
 
     def impostazione(self, chiave, valore=None):
         """Legge (o scrive, se c'e' un valore) una voce delle impostazioni del server."""
@@ -1124,7 +1124,7 @@ class Fit(BaseHTTPRequestHandler):
         if metodo == "GET" and path == "/api/notifiche/prossime":
             return self._json(200, {"notifiche": self.dati.prossime(u)})
         if metodo == "POST" and path == "/api/notifiche/prova":
-            quanti = self.dati.avvisa(u, "prova-%d" % (time.time() * 1000), "FitFuel", "Le notifiche funzionano.", "./")
+            quanti = self.dati.avvisa(u, "prova-%d" % (time.time() * 1000), "EverFit", "Le notifiche funzionano.", "./")
             return self._json(200, {"ok": quanti > 0, "telefoni": quanti})
         if metodo == "POST" and path == "/api/chat/scalda":
             # la persona ha aperto l'assistente: se puo' toccare all'AI della VM, intanto si prepara
@@ -1164,7 +1164,9 @@ class Fit(BaseHTTPRequestHandler):
             motore = cibo.motore_di(cartella, u, quale) if quale else cibo.motore_ai(cartella, u)
             if not motore:
                 raise Errore(503, "Non c'e' nessuna chiave")
-            return self._json(200, parere.prova(motore))
+            esito = parere.prova(motore)
+            assistente.rimetti(motore[0])
+            return self._json(200, esito)
         # ---- cibi per il diario
         m = re.match(r"^/api/cibo/ean/(\d{8,14})$", path)
         if metodo == "GET" and m:

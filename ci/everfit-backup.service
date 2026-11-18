@@ -1,0 +1,9 @@
+[Unit]
+Description=EverFit nightly backup in /var/backups/vm-dati (started by backup-dati.service)
+After=backup-dati.service
+
+[Service]
+Type=oneshot
+Nice=10
+IOSchedulingClass=idle
+ExecStart=/opt/everfit/bin/backup.sh

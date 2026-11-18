@@ -1,0 +1,11 @@
+.git
+.github
+.venv
+data
+dati*
+desktop
+android
+**/__pycache__
+**/*.db*
+**/*.env
+**/chiavi

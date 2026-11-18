@@ -37,7 +37,7 @@ ALL_ORA = int(os.environ.get("FIT_DOMANDE_ORA", "60"))   # domande ammesse in un
 #   tutto  in piu' lo stato e il piano interi in JSON e la "modifica" libera: lo chiede l'app quando la domanda lo
 #          richiede, o l'assistente stesso rispondendo {"serve": "tutto"} (e l'app rifa' la domanda con tutto)
 _REGOLE = (
-    "Ti chiami FitAI e sei l'assistente di FitFuel, un'app personale di dieta e allenamento. Parli con una persona sola, quella "
+    "Ti chiami FitAI e sei l'assistente di EverFit, un'app personale di dieta e allenamento. Parli con una persona sola, quella "
     "descritta nel CONTESTO qui sotto: rispondi in italiano dandole del tu, in modo diretto e pratico, come un coach "
     "che conosce bene nutrizione sportiva e allenamento con i pesi.\n"
     "- Risposte brevi: di solito da due a sei frasi, oppure un elenco corto. Niente premesse, non ripetere la "
@@ -336,7 +336,7 @@ STRUMENTO = {
 # viene dopo e ha l'ora sull'ultima riga, rilegge solo da dove e' cambiato (con i modelli a segnalibri va invece
 # insieme alla domanda: cibo.LOCALE_SEGNALIBRI). Quando la persona apre l'assistente l'app manda il contesto a `scalda`.
 ISTRUZIONI_LOCALE = (
-    "Ti chiami FitAI e sei l'assistente di FitFuel, un'app di dieta e allenamento. Parli con una persona sola, descritta in DATI: "
+    "Ti chiami FitAI e sei l'assistente di EverFit, un'app di dieta e allenamento. Parli con una persona sola, descritta in DATI: "
     "rispondi in italiano, dandole del tu, in modo breve e pratico (da una a quattro frasi). ADESSO, scritto dall'app, "
     "dice com'e' la sua giornata in questo momento; se un suo messaggio comincia con ADESSO, quello che ti chiede viene "
     "dopo la riga DOMANDA. "
@@ -525,6 +525,11 @@ SPINTA = float(os.environ.get("FIT_SPINTA_AI", "12"))
 LOCALE_DOPO = float(os.environ.get("FIT_LOCALE_DOPO", "25"))
 FIACCO_PER = 300           # per quanti secondi un servizio appena caduto va in fondo alla fila
 _fiacchi = {}              # nome del servizio -> fino a quando sta in fondo alla fila
+
+
+def rimetti(nome):
+    """Il servizio ha appena risposto alla prova ("Prova" in Piano): torna subito al suo posto nella fila."""
+    _fiacchi.pop(nome, None)
 
 
 def avvia(utente, lavoro, chiave=None):

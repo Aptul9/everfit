@@ -1,4 +1,4 @@
-# FitFuel
+# EverFit
 
 Dieta, allenamento, diario di quello che si mangia, bilancia Bluetooth e un assistente con l'intelligenza
 artificiale, in un'app web da mettere sulla schermata Home del telefono (PWA). Più persone, ognuna con il suo
@@ -23,10 +23,9 @@ app/
 ├── server/               server.py (file, API, SQLite), accesso.py (account e cookie), cibo.py (servizi di AI,
 │   │                     codici a barre), assistente.py (FitAI), parere.py, ponte.py (bilancia), spinta.py (notifiche)
 │   └── piani/            i piani scritti a mano, uno per nome utente: <nome utente>.json (GENERATI)
-├── tools/                build_plan.py (catalogo e piano del capo), persone.py (piani delle altre persone),
-│   │                     make_icons.py, foto_piatti.py, prova_account.py
-│   └── prove/            prove del server, della fila dell'AI, del ponte e delle notifiche; finta_gemini2.py (AI finta)
-└── deploy/               docker-compose.yml e deploy.sh
+└── tools/                build_plan.py (catalogo e piano del capo), persone.py (piani delle altre persone),
+    │                     make_icons.py, foto_piatti.py, prova_account.py
+    └── prove/            prove del server, della fila dell'AI, del ponte e delle notifiche; finta_gemini2.py (AI finta)
 desktop/                  l'app per PC con la bilancia Bluetooth e la "sentinella" (vedi desktop/README.md)
 ```
 
@@ -97,7 +96,7 @@ non vanno mai nel repository (vedi `.gitignore`).
 Foto del piatto, parere sui prodotti scansionati e l'assistente FitAI, che risponde e fa le cose nell'app (segna i
 pasti, cambia grammi e piatti, con il tasto per annullare). Ogni account usa la sua chiave; i servizi stanno in fila
 e se uno non risponde si passa al successivo (`server/cibo.py`): Gemini, Mistral e un modello che gira in locale con
-Ollama (facoltativo, servizio `ollama` nel compose). Le variabili utili:
+Ollama (facoltativo, non pubblicato con questo compose). Le variabili utili:
 
 | Variabile | A cosa serve |
 |---|---|
@@ -114,15 +113,17 @@ ricarica il modello e rilegge tutto da capo.
 
 ## Pubblicarla
 
-`app/deploy/docker-compose.yml` è un esempio: il container `fit` (python:3.12-slim, file in sola lettura, dati in
-`./data`, variabili da `./accesso.env`) dietro un reverse proxy sulla rete `proxy`, più il servizio facoltativo
-`ollama`. `app/deploy/deploy.sh` rigenera i piani, copia `public` e `server` in `/opt/fit` sul server (alias ssh in
-`FIT_SSH`, predefinito `fit-server`), fa una copia del database e riavvia solo `fit` quando cambia il server, poi
-confronta le impronte dei file:
+L'app gira in container, costruiti una volta sola e pubblicati solo dalla pipeline (`.github/workflows/ci-cd.yml`):
 
-```bash
-FIT_SSH=mio-server bash app/deploy/deploy.sh
-```
+- `Dockerfile`: `python:3.12-slim` fissata per digest, con `app/server` e `app/public` dentro l'immagine, utente 10001, healthcheck su `/api/health`. L'unico volume è `/data`.
+- `Dockerfile.caddy` e `Caddyfile`: Caddy fissato per digest davanti all'app. Mette `X-Fit-Accesso: ok` solo sul percorso segreto (`FIT_PERCORSO`) e toglie l'intestazione ovunque altrove; serve `/.well-known/assetlinks.json` senza accesso; HSTS, Permissions-Policy e CSP. Gli hash degli script in linea della CSP vengono da `ci/csp.py`: se `index.html` o la pagina d'accesso cambiano uno script, `ci/test_deploy.py` fallisce finché la CSP non è aggiornata.
+- `docker-compose.yml`: avvia le immagini per tag (`pull_policy: never`), rootfs in sola lettura, `cap_drop: ALL`, `no-new-privileges`. Ollama non c'è.
+- Su ogni PR: le prove del server (`ci/prove.py`, devono passare tutte), la sintassi JavaScript, le due immagini costruite e avviate con le restrizioni del compose, poi `ci/smoke.py` (accesso con il codice, percorso segreto, intestazione falsa ignorata).
+- Su `main`: il job `guard` rifiuta un commit arrivato senza pull request (GitHub Free non protegge i rami dei repository privati). Le immagini provate vanno sulla VM con `docker save`/`docker load`; `ci/deploy.sh` controlla che il digest della configurazione sia quello provato, fa la copia SQLite in `/opt/everfit/backups` (14 giorni, almeno le ultime tre), aggiunge la riga sslh per `fit.everbright.it` verso la porta 4450 (backup `/etc/sslh.cfg.pre-everfit`), avvia per tag e tiene le ultime tre release con le loro immagini. Poi `ci/smoke.py` sull'indirizzo pubblico.
+- Backup notturno: `everfit-backup.service` parte con `backup-dati.service` (03:30) e scrive `/var/backups/vm-dati/everfit-<data>.tar.zst` (ultimi 14), ogni archivio ripristinato e controllato prima di valere.
+- `Rollback` (manuale): `previous` riavvia il tag della release prima, `disable` ferma l'app e toglie la riga sslh. I dati restano.
+
+Segreti del repository: `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS`, `FIT_CODICE`, `FIT_PERCORSO`. La chiave VAPID delle notifiche la crea il server in `/data/vapid.key`.
 
 Chi ha l'app sulla Home si aggiorna da solo alla prossima apertura: il server scrive versione ed elenco dei file
 dentro `sw.js` mentre lo consegna.
@@ -138,9 +139,9 @@ python tools/prove/prova_spinta.py            # la firma delle notifiche, contro
 python ../desktop/bilancia.py prova           # il protocollo della bilancia, senza Bluetooth
 ```
 
-Al 15/11/2026 tre controlli di `prova_server.py` sull'AI non tornano, anche nel progetto da cui viene questa copia:
-la lunghezza delle istruzioni di base, il passaggio al modello di riserva e il ritorno a Gemini. Le prove non sono
-state aggiornate quando la chat è passata subito al modello leggero di Gemini. Tutto il resto passa.
+Passano tutte. I tre controlli sull'AI che non tornavano a monte (15/11/2026) sono stati aggiornati: le istruzioni di
+base si confrontano in proporzione a quelle complete, la chat va subito al modello leggero di Gemini senza aspettare
+il principale, e "Prova" rimette il servizio in testa anche nella fila dell'assistente (`assistente.rimetti`).
 
 ## Note
 

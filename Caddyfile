@@ -1,0 +1,65 @@
+{
+	http_port 8080
+	https_port 8443
+	skip_install_trust
+	servers {
+		protocols h1 h2
+	}
+}
+
+(tls_acme) {
+	# Port 80 belongs to another Caddy on the host: certificates come through TLS-ALPN behind sslh.
+	tls {
+		issuer acme {
+			disable_http_challenge
+		}
+	}
+}
+
+(tls_internal) {
+	tls internal
+}
+
+(app) {
+	reverse_proxy app:8080 {
+		header_up X-Real-IP {remote_host}
+	}
+}
+
+# Container healthcheck only; the port is not published.
+http://127.0.0.1:8079 {
+	respond "ok" 200
+}
+
+{$DOMAIN:fit.everbright.it} {
+	import tls_{$FIT_TLS:acme}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy same-origin
+		X-Robots-Tag "noindex, nofollow, noarchive"
+		Permissions-Policy "camera=(self), screen-wake-lock=(self), clipboard-write=(self), fullscreen=(self \"https://www.youtube-nocookie.com\"), picture-in-picture=(self \"https://www.youtube-nocookie.com\"), encrypted-media=(self \"https://www.youtube-nocookie.com\"), accelerometer=(self \"https://www.youtube-nocookie.com\"), gyroscope=(self \"https://www.youtube-nocookie.com\"), microphone=(), geolocation=(), payment=(), usb=(), serial=(), hid=(), bluetooth=(), midi=()"
+		# Inline script hashes come from ci/csp.py; ci/test_deploy.py fails when they drift from the served pages.
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'sha256-2CI1ciCRKUcigzhBq6DGVLldo7Ass2xaTkq33KXTojE=' 'sha256-AmeXnSiKSe3RwXDx7z8VbqRnhmNy/Nku0wPPTNZaUPY=' 'sha256-PeiBqqGyTHm+Gx7UrkNUqNnOHxoy+5Y19pVdBjn2v80=' 'sha256-f6GVSrZB+RP+GXMIVCrpYInarx5xGtoMLVIA5FYXIF8='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; frame-src https://www.youtube-nocookie.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		-Server
+	}
+	# The application refuses bodies over 2 MiB.
+	request_body {
+		max_size 3MB
+	}
+	handle /.well-known/assetlinks.json {
+		root * /srv/public
+		header Content-Type application/json
+		header Cache-Control no-cache
+		file_server
+	}
+	# Secret path of the PC app and of the scale bridge: the only route where the admin header is set.
+	handle_path /{$FIT_PERCORSO}/* {
+		request_header X-Fit-Accesso ok
+		import app
+	}
+	handle {
+		request_header -X-Fit-Accesso
+		import app
+	}
+}
