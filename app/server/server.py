@@ -1164,7 +1164,9 @@ class Fit(BaseHTTPRequestHandler):
             motore = cibo.motore_di(cartella, u, quale) if quale else cibo.motore_ai(cartella, u)
             if not motore:
                 raise Errore(503, "Non c'e' nessuna chiave")
-            return self._json(200, parere.prova(motore))
+            esito = parere.prova(motore)
+            assistente.rimetti(motore[0])
+            return self._json(200, esito)
         # ---- cibi per il diario
         m = re.match(r"^/api/cibo/ean/(\d{8,14})$", path)
         if metodo == "GET" and m:

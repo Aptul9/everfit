@@ -527,6 +527,11 @@ FIACCO_PER = 300           # per quanti secondi un servizio appena caduto va in 
 _fiacchi = {}              # nome del servizio -> fino a quando sta in fondo alla fila
 
 
+def rimetti(nome):
+    """Il servizio ha appena risposto alla prova ("Prova" in Piano): torna subito al suo posto nella fila."""
+    _fiacchi.pop(nome, None)
+
+
 def avvia(utente, lavoro, chiave=None):
     """Fa partire in sottofondo `lavoro(stato)`, che restituisce (codice, dizionario) e intanto scrive in `stato` a che
     punto e' ("chi" sta rispondendo, "nota", "aspetto"). Restituisce il numero del lavoro.

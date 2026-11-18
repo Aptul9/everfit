@@ -1,5 +1,4 @@
-"""Runs the upstream test suites. prova_server.py has three AI checks that fail upstream too (2026-11-15):
-the tests were not updated when the chat moved to Gemini's light model. Only those three are tolerated."""
+"""Runs the upstream test suites (app/tools/prove) with the fake AI service; every check must pass."""
 import os
 import subprocess
 import sys
@@ -7,11 +6,6 @@ import time
 from pathlib import Path
 
 APP = Path(__file__).resolve().parent.parent / "app"
-KNOWN = {
-    "livelli: le istruzioni di base sono molto piu' corte",
-    "modello principale muto: dopo l'attesa risponde quello di riserva",
-    "dopo la prova risponde di nuovo Gemini",
-}
 env = dict(os.environ, PYTHONIOENCODING="utf-8")
 
 
@@ -29,12 +23,13 @@ try:
 finally:
     fake.terminate()
     fake.wait(timeout=5)
-errors = {line[len("ERRORE "):].split(" -> ")[0] for line in output.splitlines() if line.startswith("ERRORE ")}
-passed = sum(1 for line in output.splitlines() if line.startswith("ok "))
-print("prova_server: %d ok, known upstream failures: %s" % (passed, sorted(errors & KNOWN)))
-if errors - KNOWN or "Traceback" in output or "registro del server" not in output or passed < 200:
+lines = output.splitlines()
+passed = sum(1 for line in lines if line.startswith("ok "))
+errors = [line for line in lines if line.startswith("ERRORE ")]
+print("prova_server: exit %d, %d ok, %d errors" % (code, passed, len(errors)))
+if code or errors or "TUTTO BENE" not in output:
     print(output)
-    failed.append("prova_server: %s" % sorted(errors - KNOWN))
+    failed.append("prova_server")
 
 for name in ("prova_catena", "prova_ponte", "prova_spinta"):
     code, output = run("tools/prove/%s.py" % name)
