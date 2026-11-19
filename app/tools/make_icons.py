@@ -112,11 +112,46 @@ def icona_pc(percorso):
     img.resize((256, 256), Image.LANCZOS).save(percorso, format="ICO", sizes=[(s, s) for s in (16, 20, 24, 32, 40, 48, 64, 128, 256)])
 
 
+def android(res):
+    """Le risorse dell'app Android (android/, una Trusted Web Activity): stesse curve, stessi colori."""
+    densita = (("mdpi", 1), ("hdpi", 1.5), ("xhdpi", 2), ("xxhdpi", 3), ("xxxhdpi", 4))
+    for nome, k in densita:
+        # icona classica (Android 7): gli angoli tondi come quella del PC, che non riempia tutto il quadrato
+        lato = int(48 * k)
+        tonda = Image.new("L", (lato * 4, lato * 4), 0)
+        ImageDraw.Draw(tonda).rounded_rectangle([0, 0, lato * 4 - 1, lato * 4 - 1], radius=int(lato * 4 * 0.2), fill=255)
+        img = icona(lato * 4, 0.66).convert("RGBA")
+        img.putalpha(tonda)
+        os.makedirs(os.path.join(res, f"mipmap-{nome}"), exist_ok=True)
+        img.resize((lato, lato), Image.LANCZOS).save(os.path.join(res, f"mipmap-{nome}", "ic_launcher.png"), optimize=True)
+        # fondo dell'icona adattiva (108 dp): la fiamma nel cerchio sicuro di 66 dp, come icon-maskable-512
+        lato = int(108 * k)
+        icona(lato * 4, 0.5).resize((lato, lato), Image.LANCZOS).save(os.path.join(res, f"mipmap-{nome}", "ic_maskable.png"), optimize=True)
+        # avvio: la fiamma sola sul fondo dell'app, come le schermate di avvio dell'iPhone
+        lato = int(300 * k)
+        os.makedirs(os.path.join(res, f"drawable-{nome}"), exist_ok=True)
+        marchio(lato, 0.45).save(os.path.join(res, f"drawable-{nome}", "splash.png"), optimize=True)
+    # la sagoma a una tinta: icona a tema (Android 13+) e icona piccola delle notifiche, in vettoriale
+    sagoma = ('<path android:fillColor="#FFFFFFFF" android:fillType="evenOdd" android:pathData="%s %s"/>' % (FIAMMA, GOCCIA))
+    vettori = {
+        "ic_monochrome.xml": ('108dp', '<group android:scaleX="0.5" android:scaleY="0.5" android:translateX="25" android:translateY="25">%s</group>' % sagoma),
+        "ic_notification_icon.xml": ('24dp', sagoma),
+    }
+    os.makedirs(os.path.join(res, "drawable"), exist_ok=True)
+    for nome, (dp, corpo) in vettori.items():
+        with open(os.path.join(res, "drawable", nome), "w", encoding="utf-8", newline="\n") as f:
+            f.write('<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="%s" android:height="%s" '
+                    'android:viewportWidth="100" android:viewportHeight="100">\n    %s\n</vector>\n' % (dp, dp, corpo))
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     pc = os.path.join(QUI, "..", "..", "desktop")
     if os.path.isdir(pc):
         icona_pc(os.path.join(pc, "fit.ico"))
+    res = os.path.join(QUI, "..", "..", "android", "app", "src", "main", "res")
+    if os.path.isdir(res):
+        android(res)
     grande = icona(1024)
     for nome, lato in (("icon-512.png", 512), ("icon-192.png", 192), ("apple-touch-icon.png", 180)):
         grande.resize((lato, lato), Image.LANCZOS).save(os.path.join(OUT, nome), optimize=True)

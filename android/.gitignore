@@ -1,0 +1,7 @@
+.gradle/
+.kotlin/
+build/
+local.properties
+# the release key lives in the lockbox and in GitHub secrets, never here
+*.jks
+*.keystore

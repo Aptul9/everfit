@@ -1,0 +1,295 @@
+name: Android
+
+# APK of the Trusted Web Activity (android/). Every pull request: wrapper check, server and update-banner tests,
+# lint, R8 release build, emulator run. On main and v* tags: signed release, signature and assetlinks check,
+# upload to servizi.everbright.it/download next to the other products.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+    paths:
+      - 'android/**'
+      - 'app/public/.well-known/**'
+      - 'app/tools/make_icons.py'
+      - '.github/workflows/android.yml'
+  pull_request:
+    paths:
+      - 'android/**'
+      - 'app/public/**'
+      - 'app/server/server.py'
+      - 'app/tools/make_icons.py'
+      - 'app/tools/prove/prova_android.py'
+      - 'app/tools/prove/prova_apk.mjs'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  PLAYWRIGHT_VERSION: 1.65.1
+
+jobs:
+  build:
+    name: Test, lint and build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      version-code: ${{ steps.versione.outputs.code }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: gradle/actions/wrapper-validation@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+
+      - name: Version
+        id: versione
+        run: |
+          # commits on main: only grows, and a rerun of the same commit gives the same number
+          code=$(git rev-list --count HEAD)
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "versionCode $code, versionName $(cat android/VERSION)"
+
+      - name: Server serves assetlinks and keeps ?apk in the manifest
+        run: python3 app/tools/prove/prova_android.py app
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - name: Update banner (js/apk.js) in Chromium
+        run: |
+          dir=$(mktemp -d)
+          npm install --prefix "$dir" --no-save --no-fund --no-audit "playwright@$PLAYWRIGHT_VERSION"
+          "$dir/node_modules/.bin/playwright" install --with-deps chromium-headless-shell
+          cp app/tools/prove/prova_apk.mjs "$dir/"
+          node "$dir/prova_apk.mjs" app/public
+
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
+
+      - name: Lint and R8 release build
+        working-directory: android
+        run: ./gradlew --no-daemon -PversionCode=${{ steps.versione.outputs.code }} lintRelease assembleRelease
+
+      - name: Debug APK that opens the runner's server (emulator only)
+        working-directory: android
+        run: ./gradlew --no-daemon -PversionCode=${{ steps.versione.outputs.code }} -PlaunchOrigin=http://10.0.2.2:8080 assembleDebug
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: android-build
+          path: |
+            android/app/build/outputs/apk/debug/app-debug.apk
+            android/app/build/reports/lint-results-release.html
+          if-no-files-found: warn
+          retention-days: 7
+
+  emulator:
+    name: Install and open on an emulator
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: android-build
+          # artifact root is android/app/build, the common ancestor of the uploaded paths
+          path: build
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Local copy of the site (no access code, as in development)
+        run: |
+          mkdir -p "$RUNNER_TEMP/dati"
+          python3 -u app/server/server.py --root app/public --data "$RUNNER_TEMP/dati" --host 127.0.0.1 --port 8080 > "$RUNNER_TEMP/server.log" 2>&1 &
+          for _ in $(seq 1 30); do curl -fsS -o /dev/null http://127.0.0.1:8080/ && break; sleep 1; done
+          curl -fsS http://127.0.0.1:8080/ | grep -q 'js/main.js'
+
+      - uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          script: sh android/ci/emulatore.sh build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/server.log" "$RUNNER_TEMP/emulatore"
+
+      - name: Server log
+        if: always()
+        run: tail -n 60 "$RUNNER_TEMP/server.log"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: android-emulator
+          path: ${{ runner.temp }}/emulatore
+          if-no-files-found: warn
+          retention-days: 7
+
+  release:
+    name: Signed release APK
+    needs: [build, emulator]
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+
+      - name: Build and sign
+        working-directory: android
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          VERSION_CODE: ${{ needs.build.outputs.version-code }}
+        run: |
+          set -eu
+          export ANDROID_KEYSTORE_FILE="$RUNNER_TEMP/release.jks"
+          trap 'rm -f "$ANDROID_KEYSTORE_FILE"' EXIT
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$ANDROID_KEYSTORE_FILE"
+          ./gradlew --no-daemon -PversionCode="$VERSION_CODE" assembleRelease
+
+      - name: Check signature, certificate and package
+        env:
+          VERSION_CODE: ${{ needs.build.outputs.version-code }}
+        run: |
+          set -eu
+          tools=$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)
+          apk=android/app/build/outputs/apk/release/app-release.apk
+          "$tools/apksigner" verify --verbose --print-certs "$apk" | tee firma.txt
+          grep -qx 'Verified using v2 scheme (APK Signature Scheme v2): true' firma.txt
+          grep -qx 'Verified using v3 scheme (APK Signature Scheme v3): true' firma.txt
+          # the certificate must be the one Chrome checks against the site's assetlinks.json
+          cert=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p; s/^V3.0 Signer: certificate SHA-256 digest: //p' firma.txt | head -n 1)
+          atteso=$(jq -r '.[0].target.sha256_cert_fingerprints[0]' app/public/.well-known/assetlinks.json | tr -d ':' | tr 'A-F' 'a-f')
+          echo "certificate $cert, assetlinks $atteso"
+          test -n "$cert" && test "$cert" = "$atteso"
+          test "$(jq -r '.[0].target.package_name' app/public/.well-known/assetlinks.json)" = it.alias_pv60kg.everfit
+          "$tools/aapt2" dump badging "$apk" | tee badging.txt | head -n 1
+          grep -q "package: name='it.alias_pv60kg.everfit' versionCode='$VERSION_CODE' versionName='$(cat android/VERSION)'" badging.txt
+          "$tools/aapt2" dump resources "$apk" | grep -A1 'launchUrl' | grep -q "https://fit.everbright.it/?apk=$VERSION_CODE"
+
+      - name: APK and JSON for the download page
+        env:
+          VERSION_CODE: ${{ needs.build.outputs.version-code }}
+        run: |
+          set -eu
+          mkdir -p release
+          cp android/app/build/outputs/apk/release/app-release.apk release/EverFit-Android.apk
+          cd release
+          jq -n --arg version "$(cat ../android/VERSION)" --argjson versionCode "$VERSION_CODE" \
+            --arg sha256 "$(sha256sum EverFit-Android.apk | cut -d' ' -f1)" --argjson bytes "$(stat -c %s EverFit-Android.apk)" \
+            --arg commit "$GITHUB_SHA" \
+            '{version: $version, versionCode: $versionCode, file: "EverFit-Android.apk", sha256: $sha256, bytes: $bytes, commit: $commit}' > EverFit-Android.json
+          sha256sum EverFit-Android.apk > SHA256SUMS.txt
+          cat EverFit-Android.json
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: everfit-android
+          path: release
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+  servizi:
+    name: Publish on servizi.everbright.it
+    needs: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # one upload at a time; a newer build waits instead of racing an older one
+    concurrency:
+      group: servizi-download-everfit-android
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Wait for live Digital Asset Links
+        run: |
+          set -euo pipefail
+          gate_dir=$(mktemp -d)
+          trap 'rm -rf "$gate_dir"' EXIT
+          for _ in $(seq 1 60); do
+            if curl -fsS --max-time 5 --dump-header "$gate_dir/headers" \
+                --output "$gate_dir/live.json" https://fit.everbright.it/.well-known/assetlinks.json \
+              && grep -qi '^content-type: application/json' "$gate_dir/headers" \
+              && jq -e --slurpfile expected app/public/.well-known/assetlinks.json \
+                'type == "array" and index($expected[0][0]) != null' "$gate_dir/live.json" >/dev/null; then
+              echo "Live Digital Asset Links match the release certificate."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Live Digital Asset Links did not match. APK not published."
+          exit 1
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: everfit-android
+          path: release
+
+      - name: Upload the checked APK, then its JSON
+        env:
+          SSH_KEY: ${{ secrets.SERVIZI_DOWNLOAD_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.SERVIZI_KNOWN_HOSTS }}
+          TARGET: servizi@${{ secrets.SERVIZI_HOST }}
+          BASE: https://servizi.everbright.it/download
+          NAME: EverFit-Android
+        run: |
+          set -euo pipefail
+          cd release
+          sha256sum --check SHA256SUMS.txt
+          hash=$(cut -d' ' -f1 SHA256SUMS.txt)
+          test "$(jq -r .sha256 "$NAME.json")" = "$hash"
+          test "$(jq -r .bytes "$NAME.json")" = "$(stat -c %s "$NAME.apk")"
+          code=$(jq -r .versionCode "$NAME.json")
+          # never put back an older or equal versionCode: phones would not install it anyway
+          published=$(curl -fsS --max-time 30 "$BASE/$NAME.json" | jq -r .versionCode || true)
+          if [ -n "$published" ] && [ "$published" != "null" ] && [ "$published" -ge "$code" ]; then
+            echo "Published versionCode $published >= $code: download left unchanged."
+            exit 0
+          fi
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          # the key's forced command (ricevi-build) takes "<name>.apk|json <sha256>" with the file on stdin
+          ssh "$TARGET" "$NAME.apk $hash" < "$NAME.apk"
+          test "$(curl -fsS --max-time 120 "$BASE/$NAME.apk" | sha256sum | cut -d' ' -f1)" = "$hash"
+          # the JSON goes last, so it never names an APK that is not there yet
+          meta=$(sha256sum "$NAME.json" | cut -d' ' -f1)
+          ssh "$TARGET" "$NAME.json $meta" < "$NAME.json"
+          test "$(curl -fsS --max-time 30 "$BASE/$NAME.json" | sha256sum | cut -d' ' -f1)" = "$meta"
+          echo "$BASE/$NAME.apk versionCode $code sha256 $hash"

@@ -188,7 +188,7 @@ __AVVIO__
 </style>
 </head>
 <body>
-<form method="post" action="/accedi">
+<form method="post" action="/accedi__APK__">
   <img src="/icons/icon-192.png" alt="">
   <h1>Ever<em>Fit</em></h1>
   <p>Entra con il tuo nome utente.<br>Su questo dispositivo lo chiedo una volta sola.</p>
@@ -218,6 +218,7 @@ __AVVIO__
 """
 
 
-def pagina(messaggio=""):
+def pagina(messaggio="", apk_query=""):
     return (PAGINA.replace("__AVVIO__", avvio_iphone("/")).replace("__MESSAGGIO__", html.escape(messaggio))
+            .replace("__APK__", html.escape(apk_query, quote=True))
             .replace("__FUOCO__", "autofocus")).encode("utf-8")
