@@ -90,8 +90,14 @@ try:
     controlla("senza cookie: assetlinks con giri strani 401", chiedi("GET", "/.well-known/../js/main.js")[0] == 401)
     controlla("senza cookie: js ancora 401", chiedi("GET", "/js/main.js")[0] == 401)
 
-    s, _, capo, _ = chiedi("POST", "/accedi", modulo="utente=&codice=" + CODICE)
-    controlla("capo entra", s == 303 and capo, s)
+    s, t, _, _ = chiedi("GET", "/?apk=7")
+    controlla("login Android: inoltra il codice del guscio", s == 401 and b'action="/accedi?apk=7"' in t)
+    s, t, _, _ = chiedi("GET", "/?apk=7%22")
+    controlla("login: scarta un codice non numerico", s == 401 and b'action="/accedi"' in t)
+    s, t, _, _ = chiedi("POST", "/accedi?apk=7", modulo="utente=&codice=errato")
+    controlla("login Android: mantiene il codice anche dopo un errore", s == 401 and b'action="/accedi?apk=7"' in t)
+    s, _, capo, h = chiedi("POST", "/accedi?apk=7", modulo="utente=&codice=" + CODICE)
+    controlla("capo entra: redirect mantiene il codice del guscio", s == 303 and capo and h.get("Location") == "/?apk=7", s)
     s, t, _, _ = chiedi("GET", "/manifest.webmanifest", cookie=capo)
     start = json.loads(t).get("start_url", "") if s == 200 else ""
     controlla("manifest da dentro: tiene ?apk=7", start.startswith("./?apk=7#k="), start)

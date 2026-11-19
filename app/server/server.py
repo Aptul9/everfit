@@ -888,13 +888,18 @@ class Fit(BaseHTTPRequestHandler):
             return {"Set-Cookie": accesso.biscotti(self.gettone, self.io["nome"])}
         return {}
 
+    def _query_apk(self):
+        codice = parse_qs(urlsplit(self.path).query).get("apk", [""])[0]
+        return "?apk=" + codice if re.fullmatch(r"[1-9][0-9]{0,8}", codice) else ""
+
     def _accedi(self, metodo):
         """La pagina del codice e il suo modulo. Risponde anche a chi e' gia' dentro e vuole cambiare account."""
         self._riconosci()
+        apk = self._query_apk()
         if metodo != "POST":
             if self.io:
-                return self._send(303, b"", extra={"Location": "./"})
-            return self._send(200, accesso.pagina(), "text/html; charset=utf-8")
+                return self._send(303, b"", extra={"Location": "./" + apk})
+            return self._send(200, accesso.pagina(apk_query=apk), "text/html; charset=utf-8")
         modulo = parse_qs(self.grezzo.decode("utf-8", "replace")) if self.grezzo and len(self.grezzo) <= 2000 else {}
         chiave = modulo.get("k", [""])[0]
         macchina = bool(chiave) or "json" in (self.headers.get("Accept") or "")   # chi chiede e' uno script, non il modulo
@@ -903,8 +908,8 @@ class Fit(BaseHTTPRequestHandler):
             if macchina:
                 return self._json(codice, {"ok": codice < 300, "errore": testo or None}, extra)
             if codice < 300:
-                return self._send(303, b"", extra=dict({"Location": "/"}, **(extra or {})))
-            return self._send(codice, accesso.pagina(testo), "text/html; charset=utf-8")
+                return self._send(303, b"", extra=dict({"Location": "/" + apk}, **(extra or {})))
+            return self._send(codice, accesso.pagina(testo, apk_query=apk), "text/html; charset=utf-8")
 
         if not accesso.ACCESO:
             return rispondi(200, "")
@@ -965,7 +970,7 @@ class Fit(BaseHTTPRequestHandler):
         if metodo in ("GET", "HEAD") and path == "/.well-known/assetlinks.json":
             return self._statico(path)   # Google lo legge senza cookie per legare l'app Android al sito
         # 401 e non 200: cosi' il service worker non scambia questa pagina per l'app e non la mette da parte
-        return self._send(401, accesso.pagina(), "text/html; charset=utf-8")
+        return self._send(401, accesso.pagina(apk_query=self._query_apk()), "text/html; charset=utf-8")
 
     def _file_piano(self):
         """Il file del piano scritto a mano per chi fa la richiesta (server/piani/<nome utente>.json), se c'e'."""
