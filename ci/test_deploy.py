@@ -27,9 +27,9 @@ class DeploymentTests(unittest.TestCase):
         self.assertIn("docker load", deploy)
 
     def test_base_images_pinned_by_digest(self):
-        for name in ("Dockerfile", "Dockerfile.caddy"):
+        for name in ("Dockerfile", "Dockerfile.caddy", "ci/Dockerfile.python"):
             first = (ROOT / name).read_text().splitlines()[0]
-            self.assertRegex(first, r"^FROM [a-z0-9.:/-]+@sha256:[a-f0-9]{64}$", name)
+            self.assertRegex(first, r"^FROM [a-z0-9.:/-]+@sha256:[a-f0-9]{64}(?: AS build)?$", name)
 
     def test_actions_pinned_by_sha(self):
         for path in (ROOT / ".github/workflows").glob("*.yml"):
@@ -55,6 +55,13 @@ class DeploymentTests(unittest.TestCase):
             text = (ROOT / name).read_text()
             self.assertIn("USER 10001:10001", text, name)
             self.assertIn("HEALTHCHECK", text, name)
+
+    def test_app_image_runtime(self):
+        image = (ROOT / "Dockerfile").read_text().split("FROM scratch\n", 1)[1]
+        self.assertIn('ENTRYPOINT ["/fit"]', image)
+        self.assertIn('CMD ["/fit", "--healthcheck"]', image)
+        self.assertNotIn("python", image)
+        self.assertNotIn("COPY app/server ", image)
 
     def test_csp_allows_exactly_the_inline_scripts_served(self):
         policy = re.search(r'Content-Security-Policy "([^"]+)"', CADDY).group(1)

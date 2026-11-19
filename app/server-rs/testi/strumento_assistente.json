@@ -1,0 +1,241 @@
+{
+ "name": "rispondi",
+ "description": "La risposta alla persona e, se ha chiesto di fare qualcosa, le azioni da eseguire nell'app.",
+ "input_schema": {
+  "type": "object",
+  "properties": {
+   "azioni": {
+    "type": "array",
+    "items": {
+     "type": "object",
+     "properties": {
+      "tipo": {
+       "type": "string",
+       "enum": [
+        "mangiato",
+        "pasto_fatto",
+        "togli_voce",
+        "acqua",
+        "movimento",
+        "peso",
+        "cambia_pasto",
+        "ripristina_pasto",
+        "nuovo_piatto",
+        "togli_piatto",
+        "tema",
+        "misure",
+        "modifica",
+        "obiettivo",
+        "quantita",
+        "orario",
+        "dose",
+        "cambia_voce"
+       ]
+      },
+      "giorno": {
+       "type": "string"
+      },
+      "pasto": {
+       "type": "string"
+      },
+      "nome": {
+       "type": "string"
+      },
+      "quantita": {
+       "type": "string"
+      },
+      "kcal": {
+       "type": "number"
+      },
+      "proteine": {
+       "type": "number"
+      },
+      "carboidrati": {
+       "type": "number"
+      },
+      "grassi": {
+       "type": "number"
+      },
+      "al_posto": {
+       "type": "string",
+       "enum": [
+        "niente",
+        "tutto",
+        "parte"
+       ]
+      },
+      "tolti": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      },
+      "foto_di": {
+       "type": "string"
+      },
+      "fatto": {
+       "type": "boolean"
+      },
+      "voce": {
+       "type": "string"
+      },
+      "ml": {
+       "type": "number"
+      },
+      "solo": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      },
+      "senza": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      },
+      "cibo": {
+       "type": "string"
+      },
+      "grammi": {
+       "type": "number"
+      },
+      "attivita": {
+       "type": "string",
+       "enum": [
+        "camminata",
+        "corsa",
+        "bici",
+        "casa",
+        "nuoto",
+        "altro"
+       ]
+      },
+      "minuti": {
+       "type": "number"
+      },
+      "kg": {
+       "type": "number"
+      },
+      "giorni": {
+       "type": "array",
+       "items": {
+        "type": "integer"
+       }
+      },
+      "ricetta": {
+       "type": "string"
+      },
+      "ingredienti": {
+       "type": "array",
+       "items": {
+        "type": "object",
+        "properties": {
+         "cibo": {
+          "type": "string"
+         },
+         "nome": {
+          "type": "string"
+         },
+         "reparto": {
+          "type": "string",
+          "enum": [
+           "Carne e pesce",
+           "Frigo",
+           "Frutta e verdura",
+           "Surgelati",
+           "Dispensa",
+           "Integratori"
+          ]
+         },
+         "grammi": {
+          "type": "number"
+         },
+         "grammi_palestra": {
+          "type": "number"
+         },
+         "kcal": {
+          "type": "number"
+         },
+         "proteine": {
+          "type": "number"
+         },
+         "carboidrati": {
+          "type": "number"
+         },
+         "grassi": {
+          "type": "number"
+         }
+        },
+        "required": [
+         "grammi"
+        ]
+       }
+      },
+      "passi": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      },
+      "aspetto": {
+       "type": "string",
+       "enum": [
+        "chiaro",
+        "scuro"
+       ]
+      },
+      "cm": {
+       "type": "object"
+      },
+      "descrizione": {
+       "type": "string"
+      },
+      "operazioni": {
+       "type": "array",
+       "items": {
+        "type": "object",
+        "properties": {
+         "op": {
+          "type": "string",
+          "enum": [
+           "metti",
+           "togli",
+           "aggiungi"
+          ]
+         },
+         "percorso": {
+          "type": "array",
+          "items": {
+           "type": "string"
+          }
+         },
+         "valore": {},
+         "dove": {
+          "type": "object"
+         }
+        },
+        "required": [
+         "op",
+         "percorso"
+        ]
+       }
+      }
+     },
+     "required": [
+      "tipo"
+     ]
+    },
+    "description": "Quello che l'app deve fare. Vuoto solo se la persona non ha chiesto di fare niente."
+   },
+   "risposta": {
+    "type": "string",
+    "description": "Quello che la persona legge: racconta le azioni qui sopra, non altre."
+   }
+  },
+  "required": [
+   "azioni",
+   "risposta"
+  ]
+ }
+}

@@ -1,0 +1,8 @@
+Persona: "porta le calorie dei giorni di palestra a 2500"
+{"azioni": [{"tipo": "modifica", "descrizione": "Giorni di palestra: 2.500 kcal invece di 2.350", "operazioni": [{"op": "metti", "percorso": ["mie", "obiettivi", "train", "kcal"], "valore": 2500}]}], "risposta": "Fatto: nei giorni di palestra l'obiettivo ora e' **2.500 kcal**."}
+Persona: "nella pasta al tonno metti 150 g di pasta anche nei giorni di riposo"
+{"azioni": [{"tipo": "modifica", "descrizione": "Pasta, tonno e pomodorini: 150 g di pasta anche a riposo", "operazioni": [{"op": "metti", "percorso": ["mie", "ricette", "pasta-tonno", "ing"], "valore": [["pasta", 150, 150], ["tonno", 168, 168], ["pomodorini", 150, 150], ["olio", 10, 10]]}]}], "risposta": "Fatto: ora la pasta al tonno ha **150 g** di pasta tutti i giorni."}
+Persona: "nascondi l'acqua dalla schermata di oggi e sposta la cena alle 21"
+{"azioni": [{"tipo": "modifica", "descrizione": "Schermata di oggi senza l'acqua; cena alle 21:00", "operazioni": [{"op": "metti", "percorso": ["opzioni", "casa", "acqua"], "valore": false}, {"op": "metti", "percorso": ["mie", "momenti", "cena", "ora"], "valore": {"rest": "21:00", "train": "21:00"}}]}], "risposta": "Fatto: l'acqua non compare piu' in Oggi e la cena e' alle **21:00**."}
+Persona: "ieri ho fatto la scheda A: panca inclinata 4 serie da 8 con 22 chili"
+{"azioni": [{"tipo": "modifica", "descrizione": "Seduta di ieri: scheda A", "operazioni": [{"op": "aggiungi", "percorso": ["sedute"], "valore": {"d": "<la data di ieri>", "w": "A", "voci": [{"es": "incline-db-press", "serie": [{"kg": 22, "rip": 8}, {"kg": 22, "rip": 8}, {"kg": 22, "rip": 8}, {"kg": 22, "rip": 8}]}]}}]}], "risposta": "Segnata la seduta di ieri."}

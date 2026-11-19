@@ -12,8 +12,7 @@ services:
     volumes:
       - ${FIT_DATA_DIR:-/opt/everfit/data}:/data
     read_only: true
-    tmpfs:
-      - /tmp:size=67108864,mode=1777
+    stop_grace_period: 45s
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     restart: unless-stopped

@@ -1,0 +1,40 @@
+{
+ "name": "scrivi_parere",
+ "description": "Scrive il parere su un prodotto confezionato per la persona descritta.",
+ "input_schema": {
+  "type": "object",
+  "properties": {
+   "riassunto": {
+    "type": "string",
+    "description": "Due o tre frasi: come sta questo prodotto rispetto agli obiettivi della persona"
+   },
+   "forti": {
+    "type": "array",
+    "items": {
+     "type": "string"
+    },
+    "description": "Da zero a quattro punti di forza, brevi"
+   },
+   "deboli": {
+    "type": "array",
+    "items": {
+     "type": "string"
+    },
+    "description": "Da zero a quattro punti deboli, brevi"
+   },
+   "consigli": {
+    "type": "array",
+    "items": {
+     "type": "string"
+    },
+    "description": "Da uno a tre consigli pratici: quando, quanto, o cosa scegliere al suo posto"
+   }
+  },
+  "required": [
+   "riassunto",
+   "forti",
+   "deboli",
+   "consigli"
+  ]
+ }
+}

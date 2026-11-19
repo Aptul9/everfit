@@ -6,6 +6,7 @@ lo fa migrare, e controlla accessi, separazione dei dati, persone, manifest e se
 import http.client
 import json
 import os
+import shlex
 import shutil
 import sqlite3
 import subprocess
@@ -29,7 +30,9 @@ ambiente = dict(os.environ, FIT_CODICE=CODICE, FIT_COOKIE=VECCHIO, FIT_NOME="Adm
                 FIT_MISTRAL_URL=os.environ.get("FIT_MISTRAL_URL", "http://127.0.0.1:8799/v1/chat/completions"),
                 FIT_ATTESA_ASSISTENTE="2", FIT_LOCALE_URL="http://127.0.0.1:8799", FIT_SPINTA_PROVA="http://127.0.0.1:8799/spinta/",
                 FIT_DOMANDE_ORA="500")   # le prove fanno piu' di sessanta domande con lo stesso account
-server = subprocess.Popen([sys.executable, "-u", os.path.join(APP, "server", "server.py"), "--root", os.path.join(APP, "public"),
+# FIT_SERVER: il comando di un altro server da provare con le stesse richieste (il binario Rust); senza, quello Python
+comando = shlex.split(os.environ["FIT_SERVER"]) if os.environ.get("FIT_SERVER") else [sys.executable, "-u", os.path.join(APP, "server", "server.py")]
+server = subprocess.Popen(comando + ["--root", os.path.join(APP, "public"),
                            "--data", cartella, "--host", "127.0.0.1", "--port", str(PORTA)],
                           env=ambiente, stdout=open(os.path.join(cartella, "server.log"), "w", encoding="utf-8"), stderr=subprocess.STDOUT)
 sbagli = []

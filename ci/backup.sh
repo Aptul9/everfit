@@ -5,6 +5,8 @@
 set -euo pipefail
 umask 077
 DATA=/opt/everfit/data
+# shellcheck source=ci/sqlite.sh
+source "$(dirname "${BASH_SOURCE[0]}")/sqlite.sh"
 OUT=/var/backups/vm-dati
 KEEP=14
 STAMP=$(date +%Y%m%d-%H%M)
@@ -13,16 +15,16 @@ trap 'rm -rf "$WORK"' EXIT
 install -d -m 700 "$OUT" "$WORK/snapshot" "$WORK/restore"
 
 test -s "$DATA/fit.db"
-sqlite3 "$DATA/fit.db" ".backup '$WORK/snapshot/fit.db'"
+sqlite_snapshot "$DATA/fit.db" "$WORK/snapshot/fit.db"
 tar -C "$DATA" --exclude='./fit.db' --exclude='./fit.db-wal' --exclude='./fit.db-shm' -cf "$WORK/snapshot/files.tar" .
 
 archive="$OUT/everfit-$STAMP.tar.zst"
 tar --zstd -C "$WORK/snapshot" -cf "$archive.part" fit.db files.tar
 
 tar --zstd -C "$WORK/restore" -xf "$archive.part"
-test "$(sqlite3 "$WORK/restore/fit.db" 'PRAGMA integrity_check;')" = ok
-sqlite3 "$WORK/restore/fit.db" 'SELECT COUNT(*) FROM utenti; SELECT COUNT(*) FROM stato;' > /dev/null
-tar -tf "$WORK/restore/files.tar" > /dev/null
+sqlite_verify "$WORK/restore/fit.db"
+mkdir "$WORK/restore/data"
+tar -xf "$WORK/restore/files.tar" -C "$WORK/restore/data"
 
 mv "$archive.part" "$archive"
 sha256sum "$archive" | sed 's#  .*/#  #' > "$archive.sha256"
