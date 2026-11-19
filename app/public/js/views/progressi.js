@@ -154,7 +154,7 @@ function cartaAndamento() {
       serie.length > 1 ? h('span', { class: `delta${buono ? '' : ' giu'}` }, `${segno(delta, m.d)} ${m.u}`) : null),
     serie.length > 1 ? h('div', { class: 'estremi' }, valoreDi('Il più basso', minimo), valoreDi('Il più alto', massimo)) : null,
     ui.metrica === 'peso' ? h('div', { style: { margin: '16px 0 6px' } },
-      h('div', { class: 'fra piccolo', style: { marginBottom: '7px', fontWeight: 650 } }, h('span', null, `Partenza ${dec(prima.peso, 2)}`), h('span', { style: { color: 'var(--acc)' } }, fermo ? `Da tenere: ${dec(ob)} kg` : `Obiettivo ${dec(ob)} kg`)),
+      h('div', { class: 'fra piccolo', style: { marginBottom: '7px', fontWeight: 650 } }, h('span', null, `Partenza ${dec(prima.peso, 2)}`), h('span', { style: { color: 'var(--acc-tx)' } }, fermo ? `Da tenere: ${dec(ob)} kg` : `Obiettivo ${dec(ob)} kg`)),
       fermo ? null : barra({ id: 'peso', val: Math.max(0, (ultima.peso - prima.peso) / (ob - prima.peso)), max: 1, colore: 'linear-gradient(90deg,#c8ff4d,#6dffa0)', alta: true })) : null,
     serie.length > 1
       ? h('div', { style: { marginTop: '14px' } }, grafico(serie.map((x) => ({ x: new Date(x.quando).getTime(), y: x[ui.metrica] })), { meta: ui.metrica === 'peso' ? ob : null, unita: m.u }))
@@ -445,12 +445,16 @@ export function mostraScheda(id) { ui.scheda = id; }
 
 export function vistaProgressi(_, ridisegna) {
   rifai = ridisegna;
-  const scheda = (id, nome) => h('button', { class: ui.scheda === id ? 'on' : '', onclick: () => { ui.scheda = id; rifai(true); } }, nome);
+  const scheda = (id, nome) => h('button', { id: `progressi-${id}`, class: ui.scheda === id ? 'on' : '', 'aria-pressed': String(ui.scheda === id), onclick: () => { ui.scheda = id; rifai(true); } }, nome);
   return [
     h('div', { class: 'top' }, h('div', null, h('div', { class: 'sopra' }, `Dal ${dataCorta(P.profilo.dataInizio)}`), h('h1', null, 'Progressi'))),
-    h('div', { class: 'seg' }, scheda('corpo', 'Corpo'), scheda('dieta', 'Dieta'), scheda('allenamenti', 'Allenamenti')),
-    ...(ui.scheda === 'corpo' ? [cartaPesati(), cartaAndamento(), cartaComposizione(), cartaCirconferenze(), elencoPesate()]
+    h('div', { class: 'seg', role: 'group', 'aria-label': 'Viste dei progressi' }, scheda('corpo', 'Corpo'), scheda('dieta', 'Dieta'), scheda('allenamenti', 'Allenamenti')),
+    ...(ui.scheda === 'corpo' ? [
+      h('div', { class: 'griglia-schede progressi-misure' }, cartaPesati(), cartaAndamento()),
+      h('div', { class: 'griglia-schede' }, cartaComposizione(), h('div', { class: 'gruppo-view' }, cartaCirconferenze())),
+      elencoPesate()]
       : ui.scheda === 'dieta' ? cartaRapporto()
-        : [cartaSedute(), h('div', { class: 'sez' }, h('h2', null, 'Carichi')), cartaCarichi()]),
+      : [h('div', { class: 'griglia-schede' }, cartaSedute(),
+        h('section', { class: 'gruppo-view' }, h('div', { class: 'sez' }, h('h2', null, 'Carichi')), cartaCarichi()))]),
   ];
 }
