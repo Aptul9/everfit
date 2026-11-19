@@ -7,6 +7,9 @@ services:
     pull_policy: never
     environment:
       FIT_CODICE: ${FIT_CODICE:?FIT_CODICE required}
+      FIT_UTENTE: ${FIT_UTENTE:-admin}
+      FIT_OWNER_HASH: ${FIT_OWNER_HASH:-}
+      FIT_NOME: ${FIT_UTENTE:-Admin}
       FIT_SITO: https://${FIT_DOMINIO:-fit.everbright.it}
       FIT_FUSO: Europe/Rome
     volumes:

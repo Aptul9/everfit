@@ -350,10 +350,13 @@ fn main() -> std::process::ExitCode {
         }
     };
     inizia_log();
-    let piani = a
-        .piani
-        .clone()
-        .unwrap_or_else(|| a.root.join("..").join("server").join("piani"));
+    let piani = a.piani.clone().unwrap_or_else(|| {
+        if conf::conf().hash_capo.is_empty() {
+            a.root.join("..").join("server").join("piani")
+        } else {
+            a.data.join("piani")
+        }
+    });
     let dati = match db::Dati::new(&a.data, piani) {
         Ok(d) => d,
         Err(e) => {

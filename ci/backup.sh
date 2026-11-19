@@ -5,6 +5,9 @@
 set -euo pipefail
 umask 077
 DATA=/opt/everfit/data
+if grep -qx 'FIT_DATA_DIR=/opt/everfit/personal-data' /opt/everfit/.env; then
+  DATA=/opt/everfit/personal-data
+fi
 # shellcheck source=ci/sqlite.sh
 source "$(dirname "${BASH_SOURCE[0]}")/sqlite.sh"
 OUT=/var/backups/vm-dati

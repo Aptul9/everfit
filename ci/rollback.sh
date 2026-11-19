@@ -47,10 +47,16 @@ for image in "everfit:$RELEASE" "everfit-web:$RELEASE"; do
   [[ "$actual" == "$expected" ]] || fail "$image config mismatch: expected $expected, got ${actual:-none}"
   echo "$image $actual matches the retained release"
 done
-docker compose --project-directory "$PREVIOUS" --env-file "$BASE/.env" config --quiet ||
+runtime="$BASE/.env"
+if [[ -f "$PREVIOUS/rollback.env" ]]; then runtime="$PREVIOUS/rollback.env"; fi
+docker compose --project-directory "$PREVIOUS" --env-file "$runtime" config --quiet ||
   fail "invalid Compose configuration for $PREVIOUS"
-docker compose --project-directory "$PREVIOUS" --env-file "$BASE/.env" up -d --wait --wait-timeout 120 --remove-orphans
-# Database stays in place; backups taken before each deploy are in /opt/everfit/backups.
+docker compose --project-directory "$PREVIOUS" --env-file "$runtime" up -d --wait --wait-timeout 120 --remove-orphans
+# A profile cutover has a separate volume, and keeps its former runtime configuration.
 curl --fail --silent --show-error https://fit.everbright.it/api/health
+if [[ "$runtime" != "$BASE/.env" ]]; then
+  install -m 600 "$runtime" "$BASE/.env.next"
+  mv -f "$BASE/.env.next" "$BASE/.env"
+fi
 ln -sfn "$PREVIOUS" "$BASE/app.next"
 mv -Tf "$BASE/app.next" "$BASE/app"
