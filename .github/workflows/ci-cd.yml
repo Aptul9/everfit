@@ -16,7 +16,7 @@ jobs:
   check:
     name: Tests and containers
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       RELEASE: ${{ github.sha }}
     steps:
@@ -27,10 +27,20 @@ jobs:
       - name: Deployment tests
         run: |
           python -m unittest discover -s ci -p 'test_*.py'
-          bash -n ci/deploy.sh ci/rollback.sh ci/backup.sh ci/rehearse.sh
-          shellcheck --severity=warning ci/*.sh
-      - name: Upstream test suites
+          for script in ci/*.sh; do bash -n "$script"; done
+          shellcheck -x --severity=warning ci/*.sh
+      - name: Python reference suites
         run: python ci/prove.py
+      - name: Rust checks
+        run: |
+          rustup show active-toolchain
+          cargo fmt --all --check
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked
+      - uses: EmbarkStudios/cargo-deny-action@07ba22ef723b206cf9d2995acd96f91dc0dc068a # v2
+        with:
+          command: check
+          command-arguments: advisories licenses bans sources
       - name: JavaScript syntax
         run: |
           scratch=$(mktemp -d)
@@ -56,6 +66,15 @@ jobs:
           docker build --pull -t "everfit:$RELEASE" .
           docker build --pull -f Dockerfile.caddy -t "everfit-web:$RELEASE" .
           docker run --rm -e FIT_PERCORSO -e FIT_TLS=internal "everfit-web:$RELEASE" caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+      - name: Parity and benchmark with the packaged Rust binary
+        run: |
+          work=$(mktemp -d)
+          container=$(docker create "everfit:$RELEASE")
+          trap 'docker rm "$container" >/dev/null; rm -rf "$work"' EXIT
+          docker cp "$container:/fit" "$work/fit"
+          FIT_SERVER="$work/fit" python ci/prove.py
+          python app/tools/prove/prova_differenziale.py "$work/fit"
+          python app/tools/prove/misura_server.py "$work/fit" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Run the images with the compose restrictions
         env:
           FIT_DOMINIO: fit.test
@@ -78,7 +97,6 @@ jobs:
           mounts=$(docker inspect "$(docker compose ps -q app)" --format '{{range .Mounts}}{{.Destination}} {{end}}')
           echo "App mounts: $mounts"
           test "$mounts" = '/data '
-          if docker compose exec -T app touch /app/server/x 2>/dev/null; then echo 'Code is writable' >&2; exit 1; fi
           sudo test -s "$FIT_DATA_DIR/fit.db"
           if docker compose logs app web 2>&1 | grep -E 'Traceback|"level":"error"'; then
             echo 'Containers emitted runtime errors' >&2

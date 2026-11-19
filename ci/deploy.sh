@@ -15,6 +15,7 @@ test -s release.tar.gz
 test -s images.tar.gz
 test -s image-ids
 test -s environment.new
+command -v sqlite3 >/dev/null
 
 # Shape of the secrets, without printing them: an empty path would turn "//" into an admin route.
 grep -Eq '^FIT_CODICE=[A-Za-z0-9]{12,}$' environment.new
@@ -28,6 +29,8 @@ NEXT="$BASE/releases/$RELEASE"
 rm -rf "$NEXT"
 install -d -m 755 "$NEXT"
 tar xzf release.tar.gz -C "$NEXT"
+# shellcheck source=ci/sqlite.sh
+source "$NEXT/ci/sqlite.sh"
 mv -f environment.new .env
 chmod 600 .env
 
@@ -51,8 +54,7 @@ compose config --quiet
 if test -s data/fit.db; then
   # SQLite online backup (the database is in WAL mode: a file copy could lose the last writes).
   backup="backups/fit.db.$(date -u +%Y%m%dT%H%M%SZ).${RELEASE:0:12}"
-  sqlite3 data/fit.db ".backup '$backup'"
-  test "$(sqlite3 "$backup" 'PRAGMA integrity_check;')" = ok
+  sqlite_snapshot data/fit.db "$backup"
   echo "Database backup: $BASE/$backup"
 fi
 # Pre-deploy copies: 14 days, never fewer than the newest three. (No glob through ls: under pipefail an empty
@@ -99,6 +101,7 @@ test "$failed" = 0
 
 # Nightly backup: own unit, started by the shared backup-dati.service, which stays untouched.
 install -m 700 "$NEXT/ci/backup.sh" bin/backup.sh
+install -m 600 "$NEXT/ci/sqlite.sh" bin/sqlite.sh
 install -m 644 "$NEXT/ci/everfit-backup.service" /etc/systemd/system/everfit-backup.service
 install -d -m 755 /etc/systemd/system/backup-dati.service.d
 printf '[Unit]\nWants=everfit-backup.service\n' > /etc/systemd/system/backup-dati.service.d/everfit.conf

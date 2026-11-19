@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # CI rehearsal of the production deploy on the runner: real sslh on 443 routing the SNI name to the real Caddy port,
-# the tested images through docker save/load, ci/deploy.sh run twice (first deploy, then an upgrade), then
+# Python fixture then tested Rust image through docker save/load, ci/deploy.sh for both, then
 # ci/rollback.sh previous and disable. Only certificate trust differs: Caddy uses its internal CA here, so curl runs
 # with --insecure.
 set -euo pipefail
@@ -9,6 +9,7 @@ NEXT_RELEASE=$(printf '%s' "$RELEASE" | sha1sum | cut -c1-40)
 DOMAIN=fit.everbright.it
 ROOT=$PWD
 work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
 
 sudo DEBIAN_FRONTEND=noninteractive apt-get -qq install -y sslh sqlite3 zstd > /dev/null
 sudo tee /etc/sslh.cfg > /dev/null <<'CFG'
@@ -51,31 +52,54 @@ ship() {   # what the deploy job copies to the VM
   sudo env PATH="$stubs:$PATH" FIT_TLS=internal EVERFIT_CHECK_OTHERS= bash /opt/everfit/ci/deploy.sh "$tag"
 }
 
-echo '::group::First deploy'
-ship "$RELEASE"
+state() {
+  curl --fail --silent --show-error --insecure "$@" "https://$DOMAIN/$FIT_PERCORSO/api/state"
+}
+
+python_state='{"di":1,"updatedAt":1,"rehearsal":"python"}'
+rust_state='{"di":1,"updatedAt":2,"rehearsal":"rust"}'
+
+echo '::group::First deploy (Python reference)'
+docker build --pull -f ci/Dockerfile.python -t "everfit:$NEXT_RELEASE" .
+docker tag "everfit-web:$RELEASE" "everfit-web:$NEXT_RELEASE"
+ship "$NEXT_RELEASE"
 echo '::endgroup::'
 grep -q "\"$DOMAIN\"" /etc/sslh.cfg
 python3 ci/smoke.py --url "https://$DOMAIN" --insecure
 sudo test -s /etc/systemd/system/backup-dati.service.d/everfit.conf
 sudo sh -c 'ls -l /var/backups/vm-dati/everfit-*.tar.zst'
+state -X PUT --data-binary "$python_state" >/dev/null
 
-echo '::group::Upgrade'
-docker tag "everfit:$RELEASE" "everfit:$NEXT_RELEASE"
-docker tag "everfit-web:$RELEASE" "everfit-web:$NEXT_RELEASE"
+echo '::group::Upgrade (tested Rust image)'
 before=$(sudo sha256sum /etc/sslh.cfg)
-ship "$NEXT_RELEASE"
+ship "$RELEASE"
 echo '::endgroup::'
 test "$before" = "$(sudo sha256sum /etc/sslh.cfg)"
-test "$(sudo readlink -f /opt/everfit/app)" = "/opt/everfit/releases/$NEXT_RELEASE"
-test "$(sudo cat /opt/everfit/previous-release)" = "/opt/everfit/releases/$RELEASE"
-test -n "$(sudo find /opt/everfit/backups -name 'fit.db.*')"
+test "$(sudo readlink -f /opt/everfit/app)" = "/opt/everfit/releases/$RELEASE"
+test "$(sudo cat /opt/everfit/previous-release)" = "/opt/everfit/releases/$NEXT_RELEASE"
+backup=$(sudo find /opt/everfit/backups -name "fit.db.*.${RELEASE:0:12}" -print -quit)
+test -n "$backup"
+test "$(sudo sqlite3 -readonly "$backup" 'SELECT json FROM stato WHERE utente=1;')" = "$python_state"
 python3 ci/smoke.py --url "https://$DOMAIN" --insecure
+test "$(state)" = "$python_state"
+state -X PUT --data-binary "$rust_state" >/dev/null
+
+echo '::group::Restore a Rust-era snapshot in scratch'
+sudo systemctl start everfit-backup.service
+archive=$(sudo find /var/backups/vm-dati -name 'everfit-*.tar.zst' -printf '%T@ %p\n' | sort -rn | sed -n '1s/^[^ ]* //p')
+sudo sha256sum -c "$archive.sha256"
+mkdir "$work/restore"
+sudo tar --zstd -xf "$archive" -C "$work/restore"
+test "$(sudo sqlite3 -readonly "$work/restore/fit.db" 'PRAGMA integrity_check;')" = ok
+test "$(sudo sqlite3 -readonly "$work/restore/fit.db" 'SELECT json FROM stato WHERE utente=1;')" = "$rust_state"
+echo '::endgroup::'
 
 echo '::group::Rollback previous'
 sudo env PATH="$stubs:$PATH" FIT_TLS=internal bash ci/rollback.sh previous
 echo '::endgroup::'
-test "$(sudo readlink -f /opt/everfit/app)" = "/opt/everfit/releases/$RELEASE"
+test "$(sudo readlink -f /opt/everfit/app)" = "/opt/everfit/releases/$NEXT_RELEASE"
 python3 ci/smoke.py --url "https://$DOMAIN" --insecure
+test "$(state)" = "$rust_state"
 
 echo '::group::Rollback disable'
 sudo env PATH="$stubs:$PATH" FIT_TLS=internal bash ci/rollback.sh disable

@@ -115,7 +115,9 @@ ricarica il modello e rilegge tutto da capo.
 
 L'app gira in container, costruiti una volta sola e pubblicati solo dalla pipeline (`.github/workflows/ci-cd.yml`):
 
-- `Dockerfile`: `python:3.12-slim` fissata per digest, con `app/server` e `app/public` dentro l'immagine, utente 10001, healthcheck su `/api/health`. L'unico volume è `/data`.
+- `Dockerfile`: static Rust binary, public assets, plans and CA certificates in a scratch image. UID 10001, native HTTP healthcheck. Only `/data` is mounted.
+- `app/server/*.py` and `ci/Dockerfile.python` are the parity reference and CI rollback fixture. The production application image contains no Python runtime or server code.
+- `ci/sqlite.sh`: host `sqlite3` takes online WAL-safe snapshots and checks integrity. Nightly backup restores into a scratch directory. Release rollback reuses the current database with the retained image and does not restore a snapshot over it.
 - `Dockerfile.caddy` e `Caddyfile`: Caddy fissato per digest davanti all'app. Mette `X-Fit-Accesso: ok` solo sul percorso segreto (`FIT_PERCORSO`) e toglie l'intestazione ovunque altrove; serve `/.well-known/assetlinks.json` senza accesso; HSTS, Permissions-Policy e CSP. Gli hash degli script in linea della CSP vengono da `ci/csp.py`: se `index.html` o la pagina d'accesso cambiano uno script, `ci/test_deploy.py` fallisce finché la CSP non è aggiornata.
 - `docker-compose.yml`: avvia le immagini per tag (`pull_policy: never`), rootfs in sola lettura, `cap_drop: ALL`, `no-new-privileges`. Ollama non c'è.
 - Su ogni PR: le prove del server (`ci/prove.py`, devono passare tutte), la sintassi JavaScript, le due immagini costruite e avviate con le restrizioni del compose, poi `ci/smoke.py` (accesso con il codice, percorso segreto, intestazione falsa ignorata).

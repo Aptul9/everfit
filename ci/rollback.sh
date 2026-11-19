@@ -19,10 +19,13 @@ test -s "$BASE/previous-release"
 PREVIOUS=$(cat "$BASE/previous-release")
 case "$PREVIOUS" in "$BASE"/releases/*) ;; *) exit 1 ;; esac
 export RELEASE=${PREVIOUS##*/}
-# Images of the last three releases stay on the VM (deploy.sh): the previous tag starts as it was tested.
-docker image inspect "everfit:$RELEASE" "everfit-web:$RELEASE" > /dev/null
+# Verify both retained image configs before changing the active services.
+for image in "everfit:$RELEASE" "everfit-web:$RELEASE"; do
+  config=$(docker image inspect "$image" --format '{{.Id}}')
+  grep -Fxq "$image $config" "$PREVIOUS/image-ids"
+done
 docker compose --project-directory "$PREVIOUS" --env-file "$BASE/.env" up -d --wait --wait-timeout 120 --remove-orphans
-ln -sfn "$PREVIOUS" "$BASE/app.next"
-mv -Tf "$BASE/app.next" "$BASE/app"
 # Database stays in place; backups taken before each deploy are in /opt/everfit/backups.
 curl --fail --silent --show-error https://fit.everbright.it/api/health
+ln -sfn "$PREVIOUS" "$BASE/app.next"
+mv -Tf "$BASE/app.next" "$BASE/app"

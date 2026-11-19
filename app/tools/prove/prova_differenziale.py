@@ -91,7 +91,6 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("rust", type=Path)
     parser.add_argument("--python-app", type=Path, default=APP)
-    parser.add_argument("--before-apk", action="store_true", help="Allow only the two known pre-APK differences")
     args = parser.parse_args()
     python = [sys.executable, str(args.python_app.resolve() / "server/server.py")]
     rust = [str(args.rust.resolve()), "--piani", str(args.python_app.resolve() / "server/piani")]
@@ -138,18 +137,17 @@ def main():
         actual = exercise(rust, right)
         assert actual[7][0] == 200 and dict(actual[7][1])["content-type"].split(";")[0] == "application/json"
         assert json.loads(actual[8][2])["start_url"].startswith("./?apk=42#k=")
-        allowed = {7, 8} if args.before_apk else set()
         differences = {i for i, (a, b) in enumerate(zip(expected, actual, strict=True)) if a != b}
-        for i in sorted(differences - allowed):
+        for i in sorted(differences):
             print(f"{i}: {checks[i][:2] if i < len(checks) else 'conditional sw.js'}")
             for name, results in (("Python", expected), ("Rust", actual)):
                 status, headers, body = results[i]
                 print(f"  {name}: {status} {headers} {body[:300]!r}")
-        assert differences <= allowed
+        assert not differences
         assert snapshot(left) == snapshot(right), "SQLite schema or state differs"
         with server(python, public, right) as port:
             assert request(port, "GET", "/api/state", headers=ADMIN)[2] == actual[25][2]
-        print(f"{len(actual)} HTTP comparisons, {len(differences)} expected differences; SQLite round trip OK")
+        print(f"{len(actual)} HTTP comparisons, zero differences; SQLite round trip OK")
 
 
 if __name__ == "__main__":
