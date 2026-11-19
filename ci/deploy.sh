@@ -6,7 +6,7 @@ umask 077
 
 BASE=/opt/everfit
 DOMAIN=fit.everbright.it
-OTHERS="push drive servizi calendar meet teams flow"
+OTHERS=${EVERFIT_CHECK_OTHERS-push drive servizi calendar meet teams flow}   # empty only in the CI rehearsal
 KEEP_RELEASES=3
 RELEASE=${1:?release SHA required}
 [[ "$RELEASE" =~ ^[a-f0-9]{40}$ ]] || exit 1
@@ -55,8 +55,9 @@ if test -s data/fit.db; then
   test "$(sqlite3 "$backup" 'PRAGMA integrity_check;')" = ok
   echo "Database backup: $BASE/$backup"
 fi
-# Pre-deploy copies: 14 days, never fewer than the newest three.
-ls -1t backups/fit.db.* 2>/dev/null | tail -n +4 | while read -r old; do
+# Pre-deploy copies: 14 days, never fewer than the newest three. (No glob through ls: under pipefail an empty
+# backups directory would stop the first deploy.)
+find backups -maxdepth 1 -name 'fit.db.*' -printf '%T@ %p\n' | sort -rn | tail -n +4 | cut -d' ' -f2- | while read -r old; do
   if [ -n "$(find "$old" -mtime +14)" ]; then rm -f "$old"; fi
 done
 if test -L app; then readlink -f app > previous-release; fi
@@ -84,7 +85,7 @@ compose ps
 compose logs --tail 10 app
 
 health=$(curl --fail --silent --show-error --retry 20 --retry-delay 6 --retry-all-errors --max-time 15 "https://$DOMAIN/api/health")
-grep -q '"ok": true' <<< "$health"
+python3 -c 'import json, sys; assert json.loads(sys.argv[1]) == {"ok": True}, sys.argv[1]' "$health"
 page=$(curl --silent --max-time 15 "https://$DOMAIN/")
 grep -q '<title>EverFit</title>' <<< "$page"
 

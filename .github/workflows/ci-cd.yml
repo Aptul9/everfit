@@ -27,7 +27,8 @@ jobs:
       - name: Deployment tests
         run: |
           python -m unittest discover -s ci -p 'test_*.py'
-          bash -n ci/deploy.sh ci/rollback.sh ci/backup.sh
+          bash -n ci/deploy.sh ci/rollback.sh ci/backup.sh ci/rehearse.sh
+          shellcheck --severity=warning ci/*.sh
       - name: Upstream test suites
         run: python ci/prove.py
       - name: JavaScript syntax
@@ -83,6 +84,8 @@ jobs:
             echo 'Containers emitted runtime errors' >&2
             exit 1
           fi
+      - name: Rehearse the production deploy, upgrade and rollback
+        run: bash ci/rehearse.sh
       - name: Package the tested images
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
