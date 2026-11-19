@@ -87,7 +87,9 @@ state -X PUT --data-binary "$rust_state" >/dev/null
 echo '::group::Restore a Rust-era snapshot in scratch'
 sudo systemctl start everfit-backup.service
 archive=$(sudo find /var/backups/vm-dati -name 'everfit-*.tar.zst' -printf '%T@ %p\n' | sort -rn | sed -n '1s/^[^ ]* //p')
-(cd "$(dirname "$archive")" && sudo sha256sum -c "$(basename "$archive").sha256")
+test -n "$archive"
+# The checksum names the archive by basename, and the backup directory is root-only.
+sudo sh -c 'cd "$1" && sha256sum -c "$2"' sh "$(dirname "$archive")" "$(basename "$archive").sha256"
 mkdir "$work/restore"
 sudo tar --zstd -xf "$archive" -C "$work/restore"
 test "$(sudo sqlite3 -readonly "$work/restore/fit.db" 'PRAGMA integrity_check;')" = ok
