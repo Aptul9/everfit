@@ -1,8 +1,8 @@
 // Ossatura dell'app: avvio, navigazione, barra in basso, barra in alto, aggiornamenti, e tutto quello che la fa
-// sentire un'app e non una pagina (scorrimento dentro #app, niente selezione del testo, niente zoom, transizioni).
+// sentire un'app (scorrimento dentro #app e transizioni).
 
 import { h, icona, oggi, colpetto } from './dom.js';
-import { carica, ascolta, ascoltaSync, allinea, controllaNovita, P, io, serveProfilo, siAllena } from './store.js';
+import { carica, ascolta, ascoltaSync, allinea, controllaNovita, P, io, serveProfilo } from './store.js';
 import { caricaMisure, aggiornaMisure, ascoltaMisure } from './misure.js';
 import { ascoltaSentinella, controllaSentinella } from './bilancia.js';
 import { ridisegnaFogli, chiudiFogli } from './ui.js';
@@ -21,18 +21,15 @@ import { controllaApk } from './apk.js';
 const app = document.getElementById('app');         // e' lui che scorre, non la pagina
 const barraSu = document.getElementById('barra-su');
 const SCHEDE = [
-  ['oggi', () => 'Oggi', 'home', vistaOggi],
-  ['dieta', () => 'Dieta', 'fork', vistaDieta],
-  ['allenamento', () => (siAllena() ? 'Gym' : 'Attività'), 'dumbbell', vistaAllenamento],
-  ['progressi', () => 'Progressi', 'chart', vistaProgressi],
-  ['altro', () => 'Piano', 'grid', vistaAltro],
+  ['oggi', 'Oggi', 'home', vistaOggi],
+  ['altro', 'Piano', 'grid', vistaAltro],
+  ['allenamento', 'Allenamento', 'dumbbell', vistaAllenamento],
+  ['dieta', 'Diario', 'fork', vistaDieta],
+  ['progressi', 'Progressi', 'chart', vistaProgressi],
 ];
 const VISTE = Object.fromEntries(SCHEDE.map((x) => [x[0], x[3]]));
 VISTE.seduta = vistaSeduta;
 VISTE.profilo = vistaProfilo;
-// nella barra in basso lo scanner sta in mezzo: le schede occupano le colonne 0, 1, 3, 4, 5
-const colonna = (i) => (i < 2 ? i : i + 1);
-
 let barra = null;
 let bolla = null;
 let rotta = null;
@@ -72,6 +69,9 @@ function monta(vista, stessa) {
 
 function disegna(entrata = false) {
   const r = leggiRotta();
+  const primaVista = !rotta;
+  const attivo = document.activeElement;
+  const fuoco = app.contains(attivo);
   const cambiata = !rotta || rotta.chiave !== r.chiave;
   if (cambiata && rotta?.nome === 'seduta' && r.nome !== 'seduta') lasciaSeduta();
   // da dove si arriva decide come entra la schermata: all'avvio a cascata, tra schede in dissolvenza, avanti e indietro di lato
@@ -91,7 +91,7 @@ function disegna(entrata = false) {
     figli = [h('div', { class: 'card vuoto', style: { marginTop: '30px' } }, h('b', null, 'Qui qualcosa si è rotto'), 'Il resto dell\'app funziona. Se ricaricando succede ancora, dimmelo.',
       h('button', { class: 'btn', style: { marginTop: '14px' }, onclick: () => location.reload() }, 'Ricarica'))];
   }
-  let vista = h('div', { class: `view${verso ? ` v-${verso}` : ''}` }, figli);
+  let vista = h('div', { class: `view view-${r.nome}${verso ? ` v-${verso}` : ''}` }, figli);
   if (verso === 'apre') figli.forEach((el, i) => el.style?.setProperty('--i', Math.min(i, 9)));
   app.classList.toggle('nudo', nudo);
   document.documentElement.classList.toggle('nuda', nudo);
@@ -104,19 +104,24 @@ function disegna(entrata = false) {
   if (verso) setTimeout(() => vista.classList.remove(`v-${verso}`), 1100);
   // nella barra in alto va il nome della scheda ("Oggi"), non il titolo grande ("Ciao, Admin")
   const scheda = SCHEDE.find((x) => x[0] === r.nome);
-  barraSu.querySelector('b').textContent = (!r.parti.length && scheda?.[1]()) || vista.querySelector('.top h1')?.textContent || '';
+  barraSu.querySelector('b').textContent = (!r.parti.length && scheda?.[1]) || vista.querySelector('.top h1')?.textContent || '';
   barraSu.classList.toggle('via', nudo);
   aggiornaBarraSu();
   if (barra) {
     barra.classList.toggle('via', nudo);
-    const i = SCHEDE.findIndex((x) => x[0] === r.nome);
-    barra.querySelectorAll('button[data-scheda]').forEach((b, k) => {
-      b.classList.toggle('on', k === i);
-      b.lastElementChild.textContent = SCHEDE[k][1]();
+    barra.querySelectorAll('[data-scheda]').forEach((b) => {
+      if (b.dataset.scheda === r.nome) b.setAttribute('aria-current', 'page');
+      else b.removeAttribute('aria-current');
     });
-    if (i >= 0) barra.querySelector('.pillola').style.transform = `translateX(${colonna(i) * 100}%)`;
     // l'assistente c'e' per chi ha una chiave; al capo si vede sempre, cosi' sa che esiste e dove accenderlo
     bolla.classList.toggle('via', nudo || !(io.ai || io.capo));
+  }
+  if (cambiata && !primaVista) {
+    const titolo = vista.querySelector('h1') || app;
+    titolo.tabIndex = -1;
+    titolo.focus({ preventScroll: true });
+  } else if (fuoco && !attivo.isConnected) {
+    (document.getElementById(attivo.id) || app).focus({ preventScroll: true });
   }
 }
 
@@ -128,28 +133,26 @@ function aggiornaBarraSu() {
 }
 
 function costruisciBarra() {
-  const scheda = ([id, nome, ic]) => h('button', { 'data-scheda': id, 'aria-label': nome(), onclick: () => {
+  const scheda = ([id, nome, ic]) => h('a', { href: `#/${id}`, 'data-scheda': id, onclick: (e) => {
+    if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
     colpetto();
-    if (leggiRotta().nome === id && !leggiRotta().parti.length) app.scrollTo({ top: 0, behavior: 'smooth' });
-    else location.hash = `#/${id}`;
-  } }, icona(ic), h('span', null, nome()));
+    if (leggiRotta().nome === id && !leggiRotta().parti.length) {
+      e.preventDefault();
+      app.scrollTo({ top: 0, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    }
+  } }, icona(ic), h('span', null, nome));
+  const salta = h('a', { class: 'salta', href: '#app', onclick: (e) => { e.preventDefault(); app.focus(); } }, 'Vai al contenuto');
   barra = h('nav', { id: 'tabbar', 'aria-label': 'Sezioni' },
-    h('span', { class: 'pillola' }),
-    scheda(SCHEDE[0]), scheda(SCHEDE[1]),
-    h('button', { class: 'scanner', 'aria-label': 'Scansiona un prodotto', onclick: () => apriScanner() }, h('i', null, icona('scan'))),
-    scheda(SCHEDE[2]), scheda(SCHEDE[3]), scheda(SCHEDE[4]));
+    h('div', { class: 'marchio', 'aria-hidden': 'true' }, icona('flame'), h('b', null, 'Ever', h('em', null, 'Fit'))),
+    h('div', { class: 'nav-sezioni' }, SCHEDE.map(scheda),
+      h('button', { class: 'scanner', 'aria-label': 'Scansiona un prodotto', onclick: () => apriScanner() }, icona('scan'), h('span', null, 'Scanner'))));
   bolla = h('button', { id: 'bolla', class: 'via', 'aria-label': 'Chiedi a FitAI', onclick: () => apriAssistente() }, icona('sparkle'));
-  document.body.append(barra, bolla);
+  app.before(salta, barra);
+  app.after(bolla);
 }
 
-// Quello che in una pagina web e' normale e in un'app no: menu al tocco lungo, zoom, trascinamento delle immagini.
 function daApp() {
-  const campo = (el) => !!el?.closest?.('input, textarea, [contenteditable]');
-  document.addEventListener('contextmenu', (e) => { if (!campo(e.target)) e.preventDefault(); });
-  document.addEventListener('dragstart', (e) => { if (!campo(e.target)) e.preventDefault(); });
-  document.addEventListener('gesturestart', (e) => e.preventDefault());   // pizzico su iOS
   document.addEventListener('touchstart', () => {}, { passive: true });   // senza, su iOS :active non scatta
-  // (il doppio tocco che ingrandisce lo spegne `touch-action` nel CSS: fermarlo qui mangerebbe i tocchi veloci sui tasti + e -)
   app.addEventListener('scroll', aggiornaBarraSu, { passive: true });
   // senza rete l'app continua a funzionare: basta dirlo
   const rete = () => document.documentElement.classList.toggle('senza-rete', navigator.onLine === false);
@@ -163,7 +166,7 @@ function daApp() {
       // dove la finestra e' piu' bassa dello schermo (html.alta, vedi index.html) i fogli si misurano dal fondo dello
       // schermo, non della finestra: la tastiera va contata da li'
       const fondo = document.documentElement.classList.contains('alta') ? window.fitSchermo.schermo : innerHeight;
-      const alta = Math.max(0, Math.round(fondo - vv.height - vv.offsetTop));
+      const alta = vv.scale <= 1.02 ? Math.max(0, Math.round(fondo - vv.height - vv.offsetTop)) : 0;
       document.documentElement.style.setProperty('--tastiera', `${alta > 80 ? alta : 0}px`);
       document.documentElement.classList.toggle('con-tastiera', alta > 80);
       if (alta > 80) diagnosi('tastiera');

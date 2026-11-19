@@ -169,7 +169,7 @@ function elenco() {
       cartaBruciate(),
       h('div', { class: 'sez' }, h('h2', null, 'Allenati a casa'), h('span', null, 'Senza attrezzi')),
       S.attiva ? inCorso() : null,
-      ...carteCasa(),
+      h('div', { class: 'griglia-schede' }, carteCasa()),
       ...storico(),
       levaAllena(),
     ];
@@ -181,7 +181,7 @@ function elenco() {
     h('div', { class: 'top' }, h('div', null, h('div', { class: 'sopra' }, perSettimana === 1 ? 'Una seduta a settimana' : `${perSettimana} sedute a settimana`), h('h1', null, 'Allenamento'))),
     cartaProssima(),
     h('div', { class: 'sez' }, h('h2', null, 'Le tue schede')),
-    ...schedePalestra().map((w) => {
+    h('div', { class: 'griglia-schede griglia-allenamenti' }, schedePalestra().map((w) => {
       const sc = P.schede[w];
       return h('button', { class: `card scheda tocco${pr?.w === w ? ' prossima' : ''}`, onclick: () => { location.hash = `#/allenamento/${w}`; } },
         h('div', { class: 'riga' },
@@ -189,11 +189,11 @@ function elenco() {
           h('div', { class: 'cresce' }, h('h3', null, sc.fuoco), h('div', { class: 'piccolo' }, `${sc.giorno != null ? `${P.giorni[sc.giorno]} · ` : ''}${sc.es.length} esercizi · ${sc.durata} min`)),
           icona('chev', 'freccia')),
         h('div', { class: 'miniature' }, sc.es.slice(0, 5).map(([es]) => h('div', { class: 'm' }, sfondoEsercizi([es])))));
-    }),
+    })),
     h('div', { class: 'sez' }, h('h2', null, 'Movimento e calorie'), liberi ? h('span', null, `${minutiInParole(liberi)} questa settimana`) : null),
     tastiMovimento(['camminata', 'corsa', 'palestra']),
     cartaBruciate(),
-    ...carteCasa(),
+    h('div', { class: 'griglia-schede' }, carteCasa()),
     ...storico(),
     levaPresenze(),
     levaAllena(),

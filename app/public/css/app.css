@@ -7,7 +7,7 @@
   --line2: rgba(var(--ink), .14);
   --tx: #f4f5f7;
   --tx2: #a6abb8;
-  --tx3: #6d7282;
+  --tx3: #9a9fb0;
   --acc: #c8ff4d;
   --acc-2: #6dffa0;
   --acc-soft: rgba(var(--acc-rgb), .13);
@@ -21,6 +21,11 @@
   --r3: 12px;
   --sat: env(safe-area-inset-top, 0px);
   --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+  --bordo-view: clamp(.75rem, 4vw, 1.125rem);
+  --spazio-view: 1rem;
+  --limite-view: 34rem;
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   --round: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --ease: cubic-bezier(.2, .8, .2, 1);
@@ -52,11 +57,11 @@
 :root[data-tema="chiaro"] {
   --bg: #f2f3f6; --card: #ffffff; --card2: #eceef2; --card3: #dfe2e8;
   --line: rgba(15, 18, 28, .08); --line2: rgba(15, 18, 28, .17);
-  --tx: #13151b; --tx2: #4b5160; --tx3: #808695;
+  --tx: #13151b; --tx2: #4b5160; --tx3: #555c6a;
   --acc: #b9f03f; --acc-2: #63dd92; --acc-soft: rgba(96, 168, 0, .14); --on-acc: #0d1400;
   --p: #e2476c; --c: #c38500; --f: #1c8fd2; --bad: #d93a3a;
   --ink: 15, 18, 28; --fondo: 242, 243, 246; --acc-rgb: 96, 168, 0; --f-rgb: 28, 143, 210;
-  --acc-tx: #4a8a00; --su-acc: #2c4f00; --tx-corpo: #2a2e38;
+  --acc-tx: #365f0c; --su-acc: #2c4f00; --tx-corpo: #2a2e38;
   --foglio: #ffffff; --foglio-rgb: 255, 255, 255;
   --carta: #ffffff;
   --ombra-carta: 0 1px 2px rgba(15, 18, 28, .05), 0 10px 26px -14px rgba(15, 18, 28, .16);
@@ -69,10 +74,8 @@
 }
 html.cambio-tema *, html.cambio-tema *::before, html.cambio-tema *::after { transition: none !important; }
 
-/* Deve sembrare un'app, non una pagina: niente barre di scorrimento, niente selezione del testo, niente zoom,
-   niente menu al tocco lungo. La pagina non scorre mai: scorre #app dentro il guscio. */
-* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; scrollbar-width: none; }
-*::-webkit-scrollbar { display: none; width: 0; height: 0; }
+/* La pagina non scorre: scorre #app dentro il guscio. */
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html { background: var(--bg); color-scheme: dark; -webkit-text-size-adjust: 100%; height: 100%; overflow: hidden; }
 body {
   margin: 0;
@@ -84,8 +87,6 @@ body {
   background: var(--bg);
   overscroll-behavior: none;
   -webkit-font-smoothing: antialiased;
-  touch-action: pan-x pan-y;
-  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
   cursor: default;
 }
 input, textarea { -webkit-user-select: text; user-select: text; cursor: text; }
@@ -101,8 +102,10 @@ body::before {
 }
 html.lock #app { overflow: hidden; }   /* con un foglio aperto la schermata sotto resta ferma */
 h1, h2, h3, p { margin: 0; }
-button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: default; -webkit-user-select: none; user-select: none; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; touch-action: manipulation; -webkit-user-select: none; user-select: none; }
 button:disabled { opacity: .55; }
+:focus-visible { outline: 2px solid var(--acc-tx); outline-offset: 3px; }
+#app:focus-visible, .view h1:focus-visible { outline-offset: -2px; }
 input { font: inherit; color: inherit; }
 img { display: block; max-width: 100%; -webkit-user-drag: none; }
 svg { display: block; }
@@ -115,7 +118,7 @@ svg { display: block; }
    (barra in basso, fogli, tasti, avvisi): altrimenti resterebbero misurati sulla finestra corta, sollevati di una fascia. */
 html.alta { height: var(--schermo); --alto: var(--schermo); }
 html.alta body { position: absolute; top: 0; right: 0; bottom: auto; left: 0; height: var(--schermo); transform: translateZ(0); }
-#guscio { position: relative; height: 100%; max-width: 520px; margin: 0 auto; }
+#guscio { position: relative; height: 100%; }
 /* Sotto l'orologio dell'iPhone. In cima alla pagina non c'e' niente da coprire e lo sfondo arriva fino al bordo dello
    schermo, senza una banda scura staccata dal resto; appena si scorre compare una sfumatura, cosi' il contenuto non
    finisce sotto l'ora (html.scorso lo mette main.js). */
@@ -136,15 +139,20 @@ html.scorso #guscio::before { opacity: 1; }
 html.nuda #guscio::after { display: none; }
 #app {
   height: 100%;
+  min-inline-size: 0;
   overflow-x: hidden; overflow-y: auto;
   -webkit-overflow-scrolling: touch; overscroll-behavior-y: contain;
-  padding: calc(var(--sat) + 4px) 18px calc(var(--tab-h) + var(--giu) + 34px);
+  padding: calc(var(--sat) + .75rem) max(var(--bordo-view), var(--sar)) calc(var(--tab-h) + var(--giu) + 34px) max(var(--bordo-view), var(--sal));
+  scroll-padding-block: calc(var(--sat) + 48px) calc(var(--tab-h) + var(--giu) + 46px);
 }
 /* Nelle schermate senza barra in basso il margine in alto lo mette la schermata, non #app: la barra della seduta
    resta attaccata al bordo (position: sticky si misura dal contenuto di chi scorre, e con il padding resterebbe staccata). */
-#app.nudo { padding-top: 0; padding-bottom: calc(var(--sab) + 120px); }
+#app.nudo { padding-top: 0; padding-bottom: calc(var(--sab) + 120px); scroll-padding-bottom: calc(var(--sab) + 120px); }
 #app.nudo .view { padding-top: calc(var(--sat) + 14px); }
-.view { display: flex; flex-direction: column; gap: 16px; }
+.view, .gruppo-view, .griglia-schede, .diario-layout { display: flex; flex-direction: column; gap: var(--spazio-view); min-width: 0; }
+.view { max-width: var(--limite-view); margin-inline: auto; overflow-wrap: anywhere; }
+#app.nudo .view { max-width: 32rem; }
+.griglia-schede:empty { display: none; }
 /* Come entra una schermata: a cascata solo all'apertura dell'app, in dissolvenza tra le schede, di lato andando
    avanti e indietro. Si muovono i figli e non la schermata intera, perche' un genitore trasformato sposterebbe
    le barre fisse (recupero, tasti in basso della seduta). */
@@ -191,7 +199,7 @@ html.senza-rete #rete { transform: translate(-50%, 0); }
 .top > div { min-width: 0; }
 .top .sopra { font-size: 12.5px; font-weight: 650; color: var(--tx3); letter-spacing: .01em; }
 .top .sopra::first-letter { text-transform: uppercase; }
-.top h1 { font-size: 30px; line-height: 1.12; font-weight: 800; letter-spacing: -.025em; }
+.top h1 { font-size: clamp(1.875rem, 1.6rem + 1.4vw, 3rem); line-height: 1.12; font-weight: 800; letter-spacing: -.035em; }
 .top.grande h1 { font-size: 38px; }
 .faccia {
   width: 40px; height: 40px; border-radius: 50%; flex: none; display: grid; place-items: center;
@@ -207,7 +215,7 @@ button.faccia:active { transform: scale(.9); }
   height: 38px; padding: 0 14px 0 8px; border-radius: 19px;
   background: var(--card2); border: 1px solid var(--line); font-weight: 600; font-size: 15px;
 }
-.sez { display: flex; align-items: baseline; justify-content: space-between; padding: 8px 4px 0; }
+.sez { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; padding: 8px 4px 0; }
 .sez h2 { font-size: 20px; font-weight: 750; letter-spacing: -.01em; }
 .sez span, .sez button { font-size: 14px; color: var(--tx3); font-weight: 600; }
 .sez button { color: var(--acc-tx); }
@@ -598,7 +606,7 @@ button.faccia:active { transform: scale(.9); }
 .legenda i.due { background: rgba(var(--acc-rgb), .38); }
 
 /* ---------- seduta ---------- */
-.seduta-top { position: sticky; top: 0; z-index: 20; margin: calc(-1 * (var(--sat) + 14px)) -18px 0; padding: calc(var(--sat) + 10px) 18px 10px; background: linear-gradient(180deg, var(--bg) 70%, rgba(var(--fondo), 0)); display: flex; align-items: center; gap: 12px; }
+.seduta-top { position: sticky; top: 0; z-index: 20; margin: calc(-1 * (var(--sat) + 14px)) 0 0; padding: calc(var(--sat) + 10px) 0 10px; background: linear-gradient(180deg, var(--bg) 70%, rgba(var(--fondo), 0)); display: flex; align-items: center; gap: 12px; }
 .tacche { flex: 1; display: flex; gap: 4px; }
 .tacche i { flex: 1; height: 5px; border-radius: 3px; background: rgba(var(--ink), .12); transition: background .4s; }
 .tacche i.fatta { background: var(--acc); }
@@ -750,28 +758,31 @@ canvas.coriandoli { position: fixed; inset: 0; width: 100%; height: 100%; pointe
 
 /* ---------- barra di navigazione ---------- */
 #tabbar {
-  position: fixed; left: 10px; right: 10px; bottom: var(--giu); z-index: 40;
-  max-width: 500px; margin: 0 auto; height: var(--tab-h);
-  display: grid; grid-template-columns: repeat(6, 1fr);
-  border-radius: 24px; background: var(--vetro); border: 1px solid var(--line2);
-  backdrop-filter: blur(26px) saturate(170%); -webkit-backdrop-filter: blur(26px) saturate(170%);
-  box-shadow: 0 12px 34px rgba(0, 0, 0, .6);
-  transition: transform .45s var(--ease), opacity .3s;
+  position: fixed; inset-inline: max(6px, var(--sal)) max(6px, var(--sar)); bottom: var(--giu); z-index: 40;
+  max-width: 38rem; margin: 0 auto; padding: 4px;
+  border-radius: 1.125rem; background: var(--card); border: 1px solid var(--line2);
+  box-shadow: 0 10px 32px rgba(0, 0, 0, .32);
 }
-#tabbar.via { transform: translateY(140%); opacity: 0; pointer-events: none; }
-/* la pillola e' larga quanto una colonna e si sposta di colonne intere: cosi' sta esattamente dietro all'icona
-   (prima era 12 px piu' stretta della barra e ai lati finiva 5 px fuori centro). Il disegno e' il suo ::before. */
-#tabbar .pillola { position: absolute; top: 6px; bottom: 6px; left: 0; width: calc(100% / 6); transition: transform .5s var(--spring); }
-#tabbar .pillola::before { content: ""; position: absolute; inset: 0 5px; border-radius: 18px; background: rgba(var(--acc-rgb), .13); }
-#tabbar button { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; color: var(--tx3); transition: color .3s; min-width: 0; }
-#tabbar button svg { width: 23px; height: 23px; transition: transform .4s var(--spring); }
-#tabbar button span { font-size: 10px; font-weight: 700; letter-spacing: 0; white-space: nowrap; }
-/* lo scanner sta in mezzo, tondo e un po' piu' su della barra: e' il tasto che si cerca con il pollice */
-#tabbar .scanner i { width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; margin-top: -16px; background: linear-gradient(135deg, var(--acc), var(--acc-2)); color: var(--on-acc); box-shadow: 0 0 0 5px rgba(var(--fondo), .92), 0 10px 24px -4px rgba(var(--acc-rgb), .5); transition: transform .25s var(--spring); }
-#tabbar .scanner:active i { transform: scale(.88); }
-#tabbar .scanner svg { width: 26px; height: 26px; }
-#tabbar button.on { color: var(--acc-tx); }
-#tabbar button.on svg { transform: translateY(-1px) scale(1.08); }
+#tabbar.via, html.nuda .salta { display: none; }
+.marchio { display: none; }
+.nav-sezioni { display: grid; grid-template-columns: 1fr 1fr 1.55fr 1fr 1.1fr 1fr; }
+.nav-sezioni > :is(a, button) {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  min-width: 0; min-height: calc(var(--tab-h) - 10px); border-radius: .75rem;
+  color: var(--tx2); font-size: clamp(.68rem, 2.7vw, .75rem); font-weight: 700; text-decoration: none;
+}
+.nav-sezioni svg { width: 1.25rem; height: 1.25rem; flex: none; }
+.nav-sezioni [aria-current] { background: var(--acc-soft); color: var(--acc-tx); }
+.nav-sezioni .scanner { color: var(--acc-tx); }
+.nav-sezioni :focus-visible { outline-offset: -2px; }
+@media (hover: hover) {
+  .nav-sezioni > :is(a, button):hover:not([aria-current]) { background: var(--card2); color: var(--tx); }
+}
+.salta {
+  position: absolute; z-index: 45; inset-block-start: calc(var(--sat) + .5rem); inset-inline-start: max(.75rem, var(--sal));
+  padding: .7em 1em; border-radius: .75rem; background: var(--card); color: var(--tx);
+}
+.salta:not(:focus) { clip-path: inset(50%); }
 
 .toast {
   position: fixed; left: 50%; bottom: calc(var(--giu) + var(--tab-h) + 18px); z-index: 90;
@@ -1001,7 +1012,7 @@ canvas.coriandoli { position: fixed; inset: 0; width: 100%; height: 100%; pointe
 }
 #bolla svg { width: 26px; height: 26px; stroke-width: 2; }
 #bolla:active { transform: scale(.9); }
-#bolla.via, html.lock #bolla { transform: scale(.5) translateY(24px); opacity: 0; pointer-events: none; }
+#bolla.via, html.lock #bolla { display: none; }
 .bolla-piccola, .bolla-grande { display: grid; place-items: center; border-radius: 50%; flex: none; color: #0b1020; background: linear-gradient(135deg, #b9a4ff, #6fd6ff 55%, #6dffa0); }
 .bolla-piccola { width: 40px; height: 40px; }
 .bolla-piccola svg { width: 21px; height: 21px; }
@@ -1161,9 +1172,57 @@ html.con-tastiera .chat-scrivi { padding-bottom: 10px; }
   *, *::before, *::after { animation-duration: .01ms !important; animation-delay: 0s !important; transition-duration: .01ms !important; }
   .anim img.b { animation: none; opacity: 0; }
 }
-@media (min-width: 560px) {
-  body { background: #050608; }
-  #guscio { background: var(--bg); box-shadow: 0 0 0 1px var(--line); }
+.view-seduta .scorri { margin-inline: 0; padding-inline: 2px; }
+.view-seduta.v-avanti > :not(.barra-giu, .recupero),
+.view-seduta.v-indietro > :not(.barra-giu, .recupero) { animation-name: scheda; }
+
+@media (max-width: 24rem) {
+  .naviga .fr { width: 36px; }
+  .naviga .oggi-tasto { padding-inline: 9px; }
+  .naviga .dove { height: auto; min-height: 42px; padding-block: 4px; }
+  .naviga .dove b { white-space: normal; }
+  .res-m { padding-inline: 6px; }
+  .res-m .punto { margin-right: 3px; }
+  .res-m b { white-space: normal; }
+}
+@media (min-width: 44rem) {
+  :root { --limite-view: 70rem; --bordo-view: clamp(1.5rem, 3.5vw, 3rem); --spazio-view: 1.25rem; }
+  .view > .top { padding-block: .5rem .75rem; border-bottom: 1px solid var(--line2); }
+  .top .sopra { margin-bottom: .3rem; }
+  .griglia-schede, .diario-layout {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start;
+  }
+  .griglia-schede > :only-child { grid-column: 1 / -1; }
+  .oggi-riepilogo > .card, .griglia-allenamenti > .card { align-self: stretch; }
+  .view-dieta > .seg, .view-progressi > .seg { max-width: 28rem; }
+  .view-dieta .diario-layout .pasto:not(.piccola) h3 { color: #fff; }
+  #bolla { right: max(1rem, var(--sar)); }
+}
+
+@media (min-width: 64rem) {
+  :root { --sidebar: 14rem; --spazio-view: 1.4rem; }
+  #guscio:has(#tabbar:not(.via)) { display: grid; grid-template-columns: var(--sidebar) minmax(0, 1fr); }
+  #guscio::after, #barra-su { display: none; }
+  #app:not(.nudo) { padding-block: calc(var(--sat) + 1.5rem) calc(var(--sab) + 5rem); scroll-padding-block: 1rem 5rem; }
+  #tabbar {
+    position: relative; inset: auto; grid-column: 1; grid-row: 1; min-height: 0; overflow: auto;
+    margin: 0; max-width: none; padding: calc(var(--sat) + 1.75rem) 1rem calc(var(--sab) + 1rem) max(1rem, var(--sal));
+    border: 0; border-inline-end: 1px solid var(--line2); border-radius: 0; box-shadow: none;
+  }
+  :root[data-tema="chiaro"] #tabbar { box-shadow: none; }
+  .marchio { display: flex; align-items: center; gap: .75rem; margin: 0 .5rem 2rem; font-size: 1.5rem; letter-spacing: -.045em; }
+  .marchio em { color: var(--acc-tx); font-style: normal; }
+  .marchio svg { width: 2rem; height: 2rem; padding: .3rem; border-radius: .5rem; background: var(--acc-soft); color: var(--acc-tx); }
+  .nav-sezioni { grid-template-columns: minmax(0, 1fr); gap: .35rem; }
+  .nav-sezioni > :is(a, button) { justify-content: flex-start; flex-direction: row; gap: .8rem; min-height: 3rem; padding: .5rem .8rem; font-size: .95rem; }
+  .nav-sezioni .scanner { margin-top: 1rem; background: var(--card2); }
+  .diario-layout { grid-template-columns: minmax(0, 4fr) minmax(0, 5fr); }
+  .oggi-riepilogo { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+  .progressi-misure { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
+  .griglia-allenamenti { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  #bolla { bottom: max(1rem, var(--sab)); }
+  .foglio { max-width: min(38rem, calc(100% - 2rem)); bottom: 1rem; border-bottom: 1px solid var(--line2); border-radius: var(--r); }
+  .foglio.chat { bottom: calc(1rem + var(--tastiera, 0px)); max-height: min(48rem, calc(var(--alto) - 2rem - var(--tastiera, 0px))); }
 }
 
 

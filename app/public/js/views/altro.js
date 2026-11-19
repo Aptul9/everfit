@@ -259,7 +259,7 @@ function persone(rifai) {
 const ai = { stato: null, chiesto: false, occupato: false, messaggio: null, aperto: null };
 const campoChiave = h('input', { type: 'password', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', placeholder: 'Incolla qui la chiave', 'aria-label': 'Chiave del servizio' });
 const NOMI_AI = { gemini: 'Gemini di Google', mistral: 'Mistral', anthropic: 'Claude di Anthropic', locale: 'AI sulla VM' };
-const collegamento = (indirizzo) => h('a', { href: `https://${indirizzo}`, target: '_blank', rel: 'noopener', style: { color: 'var(--acc)', fontWeight: 650 } }, indirizzo);
+const collegamento = (indirizzo) => h('a', { href: `https://${indirizzo}`, target: '_blank', rel: 'noopener', style: { color: 'var(--acc-tx)', fontWeight: 650 } }, indirizzo);
 // i servizi gratuiti che si accendono dall'app: come si prende la chiave
 const GRATIS = {
   gemini: () => [
@@ -465,23 +465,20 @@ export function aggiornaSync() {
 export function vistaAltro(_, rifai) {
   return [
     h('div', { class: 'top' }, h('div', null, h('div', { class: 'sopra' }, `${io.nome || P.profilo.nome} · ${P.profilo.eta} anni`), h('h1', null, 'Il tuo piano'))),
-    profilo(),
-    formaDieta(),
+    h('div', { class: 'griglia-schede' }, profilo(), formaDieta()),
     P.puntiCarenti?.length ? [h('div', { class: 'sez' }, h('h2', null, 'Punti carenti'), h('span', null, 'Tocca per vederli')), carenti(rifai)] : null,
     P.guida?.length ? [h('div', { class: 'sez' }, h('h2', null, 'Guida')), ...guida()] : null,
     ...(installa() || []),
-    h('div', { class: 'sez' }, h('h2', null, 'La tua Home'), h('span', null, 'Cosa vedi ogni giorno')),
-    casa(),
-    h('div', { class: 'sez' }, h('h2', null, 'Account')),
-    account(rifai),
+    h('div', { class: 'griglia-schede' },
+      h('section', { class: 'gruppo-view' }, h('div', { class: 'sez' }, h('h2', null, 'La tua Home'), h('span', null, 'Cosa vedi ogni giorno')), casa()),
+      h('section', { class: 'gruppo-view' }, h('div', { class: 'sez' }, h('h2', null, 'Account')), account(rifai))),
     // solo l'amministratore: gli altri non sanno nemmeno che questa sezione esiste (e il server non gliela darebbe)
     io.capo ? [h('div', { class: 'sez', id: 'carta-persone' }, h('h2', null, 'Persone'), h('span', null, 'Chi usa l\'app')), persone(rifai)] : null,
     h('div', { class: 'sez' }, h('h2', null, 'Intelligenza artificiale')),
     intelligenza(rifai),
-    h('div', { class: 'sez' }, h('h2', null, 'Passi dall\'iPhone'), h('span', null, 'Dall\'app Salute')),
-    passi(rifai),
-    h('div', { class: 'sez' }, h('h2', null, 'Notifiche')),
-    notifiche(rifai),
+    h('div', { class: 'griglia-schede' },
+      h('section', { class: 'gruppo-view' }, h('div', { class: 'sez' }, h('h2', null, 'Passi dall\'iPhone'), h('span', null, 'Dall\'app Salute')), passi(rifai)),
+      h('section', { class: 'gruppo-view' }, h('div', { class: 'sez' }, h('h2', null, 'Notifiche')), notifiche(rifai))),
     h('div', { class: 'sez' }, h('h2', null, 'I tuoi dati')),
     dati(),
     h('p', { class: 'piccolo', style: { textAlign: 'center', padding: '6px 12px 0', lineHeight: 1.5 } }, P.crediti.piatti, h('br'), P.crediti.esercizi, h('br'), `Piano ${P.versione}`),
