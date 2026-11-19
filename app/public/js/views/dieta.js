@@ -437,16 +437,16 @@ function piano() {
   const d = scelto();
   const pasti = pastiDelGiorno(d);
   return [
-    naviga(d),
-    striscia(d),
-    resoconto(d),
-    ...pasti.flatMap((x) => [
-      // quello che fa parte di un altro pasto (il caffe' della colazione) sta sotto lo stesso titolo
-      x.con && pasti.some((y) => y.mom === x.con) ? null : h('div', { class: 'momento' }, h('b', null, x.ora), x.nome),
-      x.alPosto ? cartaAlPosto(d, x, true) : cartaPasto(d, x),
-      rigaSottoIlPasto(d, x),
-    ]),
-    ...fuoriPianoDelGiorno(d),
+    h('div', { class: 'diario-layout' },
+      h('section', { class: 'gruppo-view', 'aria-label': 'Riepilogo giornaliero' }, naviga(d), striscia(d), resoconto(d)),
+      h('section', { class: 'gruppo-view', 'aria-label': 'Pasti del giorno' },
+        pasti.flatMap((x) => [
+          // quello che fa parte di un altro pasto sta sotto lo stesso titolo
+          x.con && pasti.some((y) => y.mom === x.con) ? null : h('div', { class: 'momento' }, h('b', null, x.ora), x.nome),
+          x.alPosto ? cartaAlPosto(d, x, true) : cartaPasto(d, x),
+          rigaSottoIlPasto(d, x),
+        ]),
+        fuoriPianoDelGiorno(d))),
   ];
 }
 
@@ -460,12 +460,12 @@ function spesa() {
         h('div', null, h('b', { style: { fontSize: '17px' } }, 'Spesa della settimana'), h('div', { class: 'piccolo' }, 'Calcolata sui pasti del piano, sostituzioni comprese.')),
         h('span', { class: 'num', style: { fontWeight: 800, fontSize: '19px', whiteSpace: 'nowrap' } }, `${prese}/${tot}`)),
       barra({ id: 'spesa', val: prese, max: tot, colore: 'var(--acc)', alta: true })),
-    ...gruppi.flatMap((g) => [
+    h('div', { class: 'griglia-schede' }, gruppi.map((g) => h('section', { class: 'gruppo-view' },
       h('div', { class: 'sez' }, h('h2', null, g.rep), h('span', null, g.voci.length === 1 ? '1 cosa' : `${g.voci.length} cose`)),
       h('div', { class: 'card', style: { paddingTop: '6px', paddingBottom: '6px' } }, g.voci.map((v) =>
         h('button', { class: `voce${v.presa ? ' presa' : ''}`, onclick: () => aggiorna((s) => { if (v.presa) delete s.spesa[v.id]; else s.spesa[v.id] = true; }) },
           spunta(v.presa), h('div', { class: 'cresce' }, h('b', null, v.n), v.nota ? h('small', null, v.nota) : null), h('span', { class: 'q' }, v.q)))),
-    ]),
+    ))),
     prese ? h('button', { class: 'btn', onclick: () => { aggiorna((s) => { s.spesa = {}; }); avviso('Lista azzerata'); } }, 'Azzera le spunte') : null,
   ];
 }
@@ -478,10 +478,10 @@ export function vistaDieta(_, rifai) {
   if (!document.getElementById('vista-dieta') && !ui.arrivo) ui.sel = null;
   ui.arrivo = false;
   return [
-    h('div', { class: 'top', id: 'vista-dieta' }, h('div', null, h('div', { class: 'sopra' }, 'Piano alimentare'), h('h1', null, 'Dieta'))),
-    h('div', { class: 'seg' },
-      h('button', { class: ui.scheda === 'piano' ? 'on' : '', onclick: () => { ui.scheda = 'piano'; rifai(true); } }, 'Piano'),
-      h('button', { class: ui.scheda === 'spesa' ? 'on' : '', onclick: () => { ui.scheda = 'spesa'; rifai(true); } }, 'Lista della spesa')),
+    h('div', { class: 'top', id: 'vista-dieta' }, h('div', null, h('div', { class: 'sopra' }, 'Alimentazione'), h('h1', null, 'Diario'))),
+    h('div', { class: 'seg', role: 'group', 'aria-label': 'Viste del diario' },
+      h('button', { id: 'diario-piano', class: ui.scheda === 'piano' ? 'on' : '', 'aria-pressed': String(ui.scheda === 'piano'), onclick: () => { ui.scheda = 'piano'; rifai(true); } }, 'Piano alimentare'),
+      h('button', { id: 'diario-spesa', class: ui.scheda === 'spesa' ? 'on' : '', 'aria-pressed': String(ui.scheda === 'spesa'), onclick: () => { ui.scheda = 'spesa'; rifai(true); } }, 'Lista della spesa')),
     ...(ui.scheda === 'piano' ? piano() : spesa()),
   ];
 }

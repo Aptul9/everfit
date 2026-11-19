@@ -55,11 +55,34 @@ export function spunta(on, extra = '') {
 
 // ---------- foglio a comparsa ----------
 const pila = [];
+let numeroFoglio = 0;
+
+function isolaFogli() {
+  const cima = pila[pila.length - 1];
+  document.getElementById('guscio').inert = !!cima;
+  for (const f of pila) f.el.inert = f !== cima;
+}
+
+document.addEventListener('keydown', (e) => {
+  const f = pila[pila.length - 1];
+  if (!f || e.defaultPrevented) return;
+  if (e.key === 'Escape') { e.preventDefault(); f.chiudi(); }
+  if (e.key !== 'Tab') return;
+  const tasti = [...f.el.querySelectorAll('button, input, select, textarea, a[href], iframe, [tabindex]')]
+    .filter((x) => x.tabIndex >= 0 && !x.matches(':disabled') && x.getClientRects().length && getComputedStyle(x).visibility === 'visible');
+  const primo = tasti[0], ultimo = tasti[tasti.length - 1];
+  if (!tasti.includes(document.activeElement) || (e.shiftKey ? document.activeElement === primo : document.activeElement === ultimo)) {
+    e.preventDefault();
+    ((e.shiftKey ? ultimo : primo) || f.el).focus();
+  }
+});
 
 export function foglio(disegna, { copertina = false, alChiudere = null, classe = '' } = {}) {
+  const origine = document.activeElement;
+  const titoloId = `titolo-foglio-${++numeroFoglio}`;
   const velo = h('div', { class: 'velo' });
   const corpo = h('div', { class: `corpo${copertina ? ' senza' : ''}` });
-  const el = h('div', { class: `foglio ${classe}`, role: 'dialog', 'aria-modal': 'true' },
+  const el = h('div', { class: `foglio ${classe}`, role: 'dialog', 'aria-modal': 'true', tabindex: -1 },
     h('div', { class: 'maniglia' }, h('i')),
     h('button', { class: `tondo chiudi${copertina ? ' vetro' : ''}`, 'aria-label': 'Chiudi', onclick: () => api.chiudi() }, icona('x')),
     corpo);
@@ -77,17 +100,36 @@ export function foglio(disegna, { copertina = false, alChiudere = null, classe =
       const y = corpo.scrollTop;
       corpo.replaceChildren(...[].concat(disegna(api)).flat(Infinity).filter((x) => x && x.nodeType));
       corpo.scrollTop = y;
+      const titolo = corpo.querySelector('h2');
+      if (titolo) {
+        titolo.id ||= titoloId;
+        el.setAttribute('aria-labelledby', titolo.id);
+        el.removeAttribute('aria-label');
+      } else {
+        el.removeAttribute('aria-labelledby');
+        el.setAttribute('aria-label', 'Finestra EverFit');
+      }
+      if (pila[pila.length - 1] === api && attivo && !attivo.isConnected) el.focus({ preventScroll: true });
     },
     chiudi() {
       if (chiuso) return;
       chiuso = true;
       const i = pila.indexOf(api);
+      const inCima = i === pila.length - 1;
       if (i >= 0) pila.splice(i, 1);
+      el.inert = true;
       velo.classList.remove('su');
       el.classList.remove('su');
       el.style.transform = '';
       setTimeout(() => { velo.remove(); el.remove(); }, 480);
       if (!pila.length) document.documentElement.classList.remove('lock');
+      isolaFogli();
+      if (inCima) {
+        const destinazione = origine?.isConnected && origine.getClientRects().length && !origine.closest('[inert]')
+          ? origine : pila[pila.length - 1]?.el || document.getElementById('app');
+        destinazione.focus({ preventScroll: true });
+      }
+      el.setAttribute('aria-hidden', 'true');
       alChiudere?.();
     },
   };
@@ -117,11 +159,13 @@ export function foglio(disegna, { copertina = false, alChiudere = null, classe =
   void el.getBoundingClientRect();
   velo.classList.add('su');
   el.classList.add('su');
+  el.focus({ preventScroll: true });
+  isolaFogli();
   return api;
 }
 
 export function ridisegnaFogli() { for (const f of [...pila]) f.ridisegna(); }
-export function chiudiFogli() { for (const f of [...pila]) f.chiudi(); }
+export function chiudiFogli() { for (const f of [...pila].reverse()) f.chiudi(); }
 
 export function conferma({ titolo, testo, azioni }) {
   const f = foglio(() => [

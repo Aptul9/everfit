@@ -29,6 +29,14 @@ function attributi(el, attrs) {
 export function h(tag, attrs, ...figli) {
   const el = document.createElement(tag);
   if (attrs) attributi(el, attrs);
+  if (tag !== 'button' && attrs?.role === 'button' && attrs.onclick) {
+    if (!el.hasAttribute('tabindex')) el.tabIndex = 0;
+    el.addEventListener('keydown', (e) => {
+      if (e.target !== el || !['Enter', ' '].includes(e.key)) return;
+      e.preventDefault();
+      if (!e.repeat) el.click();
+    });
+  }
   metti(el, figli);
   return el;
 }
