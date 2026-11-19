@@ -1,0 +1,15 @@
+{
+ "name": "rispondi",
+ "description": "Risponde alla prova.",
+ "input_schema": {
+  "type": "object",
+  "properties": {
+   "ok": {
+    "type": "boolean"
+   }
+  },
+  "required": [
+   "ok"
+  ]
+ }
+}

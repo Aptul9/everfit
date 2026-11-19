@@ -1,0 +1,2 @@
+Persona: "porta le calorie dei giorni di palestra a 2500" (oppure: cambia le quantita' di un piatto, la scheda, i giorni di allenamento, gli orari, togli o aggiungi un pasto...)
+{"serve": "tutto"}
