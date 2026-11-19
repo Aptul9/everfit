@@ -182,6 +182,9 @@ impl Dati {
             segreto
         };
         d.segreto = segreto;
+        if crate::oidc::attivo() {
+            d.prepara_everid()?;
+        }
         d.importa_vecchio_stato();
         Ok(d)
     }
@@ -689,6 +692,9 @@ impl Dati {
                 db.execute(&format!("DELETE FROM {t} WHERE utente = ?"), [ident])?;
             }
             db.execute("DELETE FROM utenti WHERE id = ?", [ident])?;
+            if crate::oidc::attivo() {
+                db.execute("DELETE FROM everid WHERE utente = ?", [ident])?;
+            }
             Ok(())
         })?;
         for motore in crate::chiavi::MOTORI {
@@ -696,6 +702,158 @@ impl Dati {
         }
         Ok(())
     }
+
+    // ---- EverID
+    /// The EverID tables: which account each EverID person (`sub`) has here, and the ID token of each session that
+    /// came from EverID, for the logout. Created only when EverID is configured, so a database that never used it
+    /// stays identical to the one the Python server makes.
+    pub fn prepara_everid(&self) -> Esito<()> {
+        self.scrivi(|db| {
+            db.execute_batch(
+                "CREATE TABLE IF NOT EXISTS everid (sub TEXT PRIMARY KEY, utente INTEGER NOT NULL UNIQUE, email TEXT NOT NULL, creato REAL NOT NULL);
+                 CREATE TABLE IF NOT EXISTS everid_sessioni (impronta TEXT PRIMARY KEY, id_token TEXT NOT NULL);
+                 DELETE FROM everid WHERE utente NOT IN (SELECT id FROM utenti);
+                 DELETE FROM everid_sessioni WHERE impronta NOT IN (SELECT impronta FROM sessioni);",
+            )?;
+            Ok(())
+        })
+    }
+
+    /// The account of this EverID person. The first time: the admin account when `capo` (owner e-mail and EverID
+    /// admin, since EverID does not verify e-mails) and the admin is not linked yet, otherwise a new empty account
+    /// without a password.
+    pub fn da_everid(&self, p: &crate::oidc::Persona, capo: bool) -> Esito<Utente> {
+        let trova = |db: &Connection| -> Esito<Option<Utente>> {
+            Ok(db
+                .query_row(
+                    "SELECT u.id, u.nome, u.capo, u.utente FROM everid e JOIN utenti u ON u.id = e.utente WHERE e.sub = ?",
+                    [&p.sub],
+                    Utente::da_riga,
+                )
+                .optional()?)
+        };
+        if let Some(u) = self.leggi(trova)? {
+            return Ok(u);
+        }
+        let base = base_utente(&p.utente, &p.email);
+        let nome =
+            nome_pulito(&Value::String(p.nome.clone())).unwrap_or_else(|_| capitalize(&base));
+        let codice = accesso::firma(&self.segreto, &accesso::nuovo_gettone());
+        self.scrivi(|db| {
+            if let Some(u) = trova(db)? {
+                return Ok(u);
+            }
+            let collega = |db: &Transaction, id: i64| -> Esito<()> {
+                db.execute(
+                    "INSERT INTO everid (sub, utente, email, creato) VALUES (?, ?, ?, ?)",
+                    params![p.sub, id, p.email, py::ora()],
+                )?;
+                Ok(())
+            };
+            if capo {
+                let preso = db
+                    .query_row(
+                        "SELECT 1 FROM everid WHERE utente = ?",
+                        [accesso::CAPO],
+                        |_| Ok(()),
+                    )
+                    .optional()?
+                    .is_some();
+                if !preso {
+                    collega(db, accesso::CAPO)?;
+                    log!("EverID: {} collegato all'account del capo", p.email);
+                    return Ok(db.query_row(
+                        "SELECT id, nome, capo, utente FROM utenti WHERE id = ?",
+                        [accesso::CAPO],
+                        Utente::da_riga,
+                    )?);
+                }
+                log!(
+                    "EverID: account del capo gia' collegato, {} riceve un account nuovo",
+                    p.email
+                );
+            }
+            let n: i64 = db.query_row("SELECT COUNT(*) FROM utenti", [], |r| r.get(0))?;
+            if n >= MAX_PERSONE {
+                return errore(403, "Ci sono gia' troppe persone");
+            }
+            let presi: HashSet<String> = {
+                let mut st = db.prepare("SELECT utente FROM utenti WHERE utente IS NOT NULL")?;
+                st.query_map([], |r| r.get::<_, String>(0))?
+                    .collect::<Result<_, _>>()?
+            };
+            let utente = libero(&base, &presi);
+            db.execute(
+                "INSERT INTO utenti (nome, utente, codice) VALUES (?, ?, ?)",
+                params![nome, utente, codice],
+            )?;
+            let id = db.last_insert_rowid();
+            collega(db, id)?;
+            log!("EverID: nuovo account {} ({})", id, utente);
+            Ok(Utente {
+                id,
+                nome,
+                capo: 0,
+                utente: Some(utente),
+            })
+        })
+    }
+
+    pub fn segna_id_token(&self, gettone: &str, id_token: &str) -> Esito<()> {
+        self.scrivi(|db| {
+            db.execute(
+                "INSERT OR REPLACE INTO everid_sessioni (impronta, id_token) VALUES (?, ?)",
+                params![accesso::impronta(gettone), id_token],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// The ID token of this session, removed: the logout hands it back to EverID.
+    pub fn togli_id_token(&self, gettone: &str) -> Esito<Option<String>> {
+        let imp = accesso::impronta(gettone);
+        self.scrivi(|db| {
+            let t: Option<String> = db
+                .query_row(
+                    "SELECT id_token FROM everid_sessioni WHERE impronta = ?",
+                    [&imp],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            db.execute("DELETE FROM everid_sessioni WHERE impronta = ?", [&imp])?;
+            Ok(t)
+        })
+    }
+}
+
+/// A valid username from the EverID one or from the e-mail, at most 20 characters so a number still fits.
+fn base_utente(preferito: &str, email: &str) -> String {
+    for s in [preferito, email.split('@').next().unwrap_or("")] {
+        let pulito: String = s
+            .trim()
+            .to_lowercase()
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+            .collect();
+        let pulito = py::taglia(
+            pulito.trim_start_matches(|c: char| !c.is_ascii_alphanumeric()),
+            20,
+        );
+        if accesso::nome_utente(&pulito).is_some() {
+            return pulito;
+        }
+    }
+    "persona".into()
+}
+
+fn libero(base: &str, presi: &HashSet<String>) -> String {
+    let mut n = 1;
+    let mut nome = base.to_string();
+    while presi.contains(&nome) {
+        n += 1;
+        nome = format!("{base}{n}");
+    }
+    nome
 }
 
 /// Creates the tables; if it finds the ones from before accounts (one owner) it gives them to the admin.

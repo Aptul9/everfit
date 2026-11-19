@@ -74,6 +74,7 @@ jobs:
           docker cp "$container:/fit" "$work/fit"
           FIT_SERVER="$work/fit" python ci/prove.py
           python app/tools/prove/prova_differenziale.py "$work/fit"
+          python ci/prova_everid.py "$work/fit"
           python app/tools/prove/misura_server.py "$work/fit" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Run the images with the compose restrictions
         env:
@@ -175,12 +176,18 @@ jobs:
           FIT_PERCORSO: ${{ secrets.FIT_PERCORSO }}
           FIT_PASSWORD: ${{ secrets.FIT_PASSWORD }}
           FIT_UTENTE: ${{ vars.FIT_UTENTE }}
+          OIDC_ISSUER: ${{ vars.OIDC_ISSUER }}
+          OIDC_CLIENT_ID: ${{ secrets.OIDC_CLIENT_ID }}
+          OIDC_CLIENT_SECRET: ${{ secrets.OIDC_CLIENT_SECRET }}
+          FIT_OWNER_EMAIL: ${{ vars.FIT_OWNER_EMAIL }}
+          FIT_LOGIN_CODICE: ${{ vars.FIT_LOGIN_CODICE }}
         run: |
           test -n "$FIT_CODICE" && test -n "$FIT_PERCORSO"
           umask 077
           printf 'FIT_CODICE=%s\nFIT_PERCORSO=%s\n' "$FIT_CODICE" "$FIT_PERCORSO" > bundle/environment.new
           ssh "$TARGET" 'install -d -m 700 /opt/everfit'
           python3 ci/owner_env.py bundle/environment.new
+          python3 ci/everid_env.py bundle/environment.new
           scp bundle/release.tar.gz bundle/images.tar.gz bundle/image-ids bundle/environment.new "$TARGET:/opt/everfit/"
       - name: Deploy from versioned script
         run: ssh "$TARGET" "set -e; tar xzf /opt/everfit/release.tar.gz -C /opt/everfit ci/deploy.sh; bash /opt/everfit/ci/deploy.sh '$GITHUB_SHA'"

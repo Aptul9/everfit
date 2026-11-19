@@ -12,6 +12,12 @@ services:
       FIT_NOME: ${FIT_UTENTE:-Admin}
       FIT_SITO: https://${FIT_DOMINIO:-fit.everbright.it}
       FIT_FUSO: Europe/Rome
+      # EverID: off while issuer, client id or secret is empty; FIT_LOGIN_CODICE=0 turns the username login off
+      FIT_OIDC_ISSUER: ${FIT_OIDC_ISSUER:-}
+      FIT_OIDC_CLIENT_ID: ${FIT_OIDC_CLIENT_ID:-}
+      FIT_OIDC_CLIENT_SECRET: ${FIT_OIDC_CLIENT_SECRET:-}
+      FIT_OWNER_EMAIL: ${FIT_OWNER_EMAIL:-}
+      FIT_LOGIN_CODICE: ${FIT_LOGIN_CODICE:-1}
     volumes:
       - ${FIT_DATA_DIR:-/opt/everfit/data}:/data
     read_only: true
