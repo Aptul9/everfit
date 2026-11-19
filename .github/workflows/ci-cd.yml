@@ -173,11 +173,14 @@ jobs:
         env:
           FIT_CODICE: ${{ secrets.FIT_CODICE }}
           FIT_PERCORSO: ${{ secrets.FIT_PERCORSO }}
+          FIT_PASSWORD: ${{ secrets.FIT_PASSWORD }}
+          FIT_UTENTE: ${{ vars.FIT_UTENTE }}
         run: |
           test -n "$FIT_CODICE" && test -n "$FIT_PERCORSO"
           umask 077
           printf 'FIT_CODICE=%s\nFIT_PERCORSO=%s\n' "$FIT_CODICE" "$FIT_PERCORSO" > bundle/environment.new
           ssh "$TARGET" 'install -d -m 700 /opt/everfit'
+          python3 ci/owner_env.py bundle/environment.new
           scp bundle/release.tar.gz bundle/images.tar.gz bundle/image-ids bundle/environment.new "$TARGET:/opt/everfit/"
       - name: Deploy from versioned script
         run: ssh "$TARGET" "set -e; tar xzf /opt/everfit/release.tar.gz -C /opt/everfit ci/deploy.sh; bash /opt/everfit/ci/deploy.sh '$GITHUB_SHA'"
@@ -188,4 +191,6 @@ jobs:
         env:
           FIT_CODICE: ${{ secrets.FIT_CODICE }}
           FIT_PERCORSO: ${{ secrets.FIT_PERCORSO }}
+          FIT_PASSWORD: ${{ secrets.FIT_PASSWORD }}
+          FIT_UTENTE: ${{ vars.FIT_UTENTE }}
         run: python ci/smoke.py --url https://fit.everbright.it

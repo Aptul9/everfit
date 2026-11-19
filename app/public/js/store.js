@@ -241,8 +241,8 @@ export const pianoScritto = () => !!mio?.settimana;
 // gira tra le alternative ("giro") e lo schema ripetuto cosi' com'e' ("fisso"), e i testi per chiedere quale si
 // preferisce: {testo, giro: [titolo, sotto], fisso: [titolo, sotto]}. Null per chi ha una forma sola.
 export const menuDelPiano = () => (mio?.settimanaFissa ? mio.menu || {} : null);
-// True finche' la persona non ha risposto alle domande del primo avvio. Al capo non si chiedono: l'app e' nata su di lui.
-export const serveProfilo = () => !io.capo && !S.profilo?.fatto;
+// An owner with an imported plan already has a profile.
+export const serveProfilo = () => (!io.capo || !io.piano) && !S.profilo?.fatto;
 
 // Salva le risposte del primo avvio (o di "Cambia i miei dati"). `casa` e `orari` finiscono nelle opzioni, dove si
 // possono ritoccare una per una dalla scheda Piano.
@@ -303,7 +303,7 @@ async function chiSono() {
 
 // Mette in `io` quello che dice il server. Restituisce true se sul dispositivo c'erano i dati di un altro account.
 function riconosci(nuovoIo) {
-  const cambiato = io.id != null && io.id !== nuovoIo.id;
+  const cambiato = io.id != null && (io.id !== nuovoIo.id || (io.utente && io.utente !== nuovoIo.utente));
   // uno stato senza proprietario e' di prima degli account: era del capo, e a chiunque altro non va mostrato
   const orfano = io.id == null && nuovoIo.id !== 1 && (S.updatedAt || 0) > 0 && S.di == null;
   if (cambiato || orfano) { dimentica(); adotta({}); }

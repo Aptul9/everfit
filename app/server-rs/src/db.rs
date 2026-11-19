@@ -168,6 +168,12 @@ impl Dati {
                 "UPDATE utenti SET utente = ? WHERE id = ? AND utente IS NULL",
                 params![conf.utente_capo, accesso::CAPO],
             )?;
+            if !conf.hash_capo.is_empty() {
+                tx.execute(
+                    "UPDATE utenti SET (utente, password) = (?1, ?2) WHERE id = ?3",
+                    params![conf.utente_capo, conf.hash_capo, accesso::CAPO],
+                )?;
+            }
             tx.execute(
                 "DELETE FROM sessioni WHERE vista < ?",
                 params![py::ora() - accesso::DURATA as f64],
@@ -273,6 +279,10 @@ impl Dati {
         if segreto.is_empty() {
             return Ok(None);
         }
+        let personale = !crate::conf::conf().hash_capo.is_empty();
+        if personale && nome.is_empty() {
+            return Ok(None);
+        }
         let del_capo = accesso::firma(&self.segreto, &accesso::pulisci_codice(segreto));
         type Riga = (Utente, Option<String>, String);
         let r: Option<Riga> = self.leggi(|db| {
@@ -309,7 +319,7 @@ impl Dati {
         };
         let pw = password.as_deref().filter(|p| !p.is_empty());
         if pw.is_some_and(|p| accesso::combacia(segreto, p))
-            || (u.capo != 0 && accesso::uguali(&codice, &del_capo))
+            || (!personale && u.capo != 0 && accesso::uguali(&codice, &del_capo))
         {
             return Ok(Some(u));
         }

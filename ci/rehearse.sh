@@ -47,6 +47,9 @@ ship() {   # what the deploy job copies to the VM
   gzip -c "$work/images.tar" > "$work/images.tar.gz"
   git archive --format=tar.gz HEAD docker-compose.yml ci > "$work/release.tar.gz"
   printf 'FIT_CODICE=%s\nFIT_PERCORSO=%s\n' "$FIT_CODICE" "$FIT_PERCORSO" > "$work/environment.new"
+  if [[ "${2:-}" == personal ]]; then
+    python3 ci/owner_env.py "$work/environment.new"
+  fi
   sudo cp "$work/release.tar.gz" "$work/images.tar.gz" "$work/image-ids" "$work/environment.new" /opt/everfit/
   sudo tar xzf /opt/everfit/release.tar.gz -C /opt/everfit ci/deploy.sh
   sudo env PATH="$stubs:$PATH" FIT_TLS=internal EVERFIT_CHECK_OTHERS= bash /opt/everfit/ci/deploy.sh "$tag"
@@ -102,6 +105,23 @@ echo '::endgroup::'
 test "$(sudo readlink -f /opt/everfit/app)" = "/opt/everfit/releases/$NEXT_RELEASE"
 python3 ci/smoke.py --url "https://$DOMAIN" --insecure
 test "$(state)" = "$rust_state"
+
+echo '::group::Personal profile cutover and rollback'
+personal_release=$(printf '%s-personal' "$RELEASE" | sha1sum | cut -c1-40)
+docker tag "everfit:$RELEASE" "everfit:$personal_release"
+docker tag "everfit-web:$RELEASE" "everfit-web:$personal_release"
+(
+  export FIT_UTENTE=personal-owner
+  export FIT_PASSWORD="fixture.${RELEASE:0:8}+"
+  ship "$personal_release" personal
+  python3 ci/smoke.py --url "https://$DOMAIN" --insecure
+  test "$(state)" = '{}'
+  test "$(sudo sqlite3 -readonly /opt/everfit/data/fit.db 'SELECT json FROM stato WHERE utente=1;')" = "$rust_state"
+  sudo env PATH="$stubs:$PATH" FIT_TLS=internal bash ci/rollback.sh previous
+  test "$(state)" = "$rust_state"
+  sudo test -s /opt/everfit/personal-data/fit.db
+)
+echo '::endgroup::'
 
 echo '::group::Rollback disable'
 sudo env PATH="$stubs:$PATH" FIT_TLS=internal bash ci/rollback.sh disable

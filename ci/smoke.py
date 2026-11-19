@@ -9,7 +9,7 @@ import os
 import ssl
 import sys
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 
 ROOT = Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser()
@@ -18,6 +18,8 @@ parser.add_argument("--insecure", action="store_true")
 args = parser.parse_args()
 base = urlsplit(args.url)
 codice, percorso = os.environ["FIT_CODICE"], os.environ["FIT_PERCORSO"]
+owner_login = os.environ.get("FIT_UTENTE", "admin")
+login = {"utente": owner_login, "password": os.environ.get("FIT_PASSWORD", codice)}
 context = ssl._create_unverified_context() if args.insecure else ssl.create_default_context()
 failures = []
 
@@ -63,14 +65,17 @@ for header in ("X-Fit-Accesso", "x-fit-accesso"):
 status, data, _ = request("GET", "/%s/api/io" % percorso)
 check("secret path is admin", status == 200 and (as_json(data) or {}).get("capo") is True, (status, data))
 
-status, data, response = request("POST", "/accedi", body="utente=admin&password=%s" % codice,
+status, data, response = request("POST", "/accedi", body=urlencode(login),
                                  headers={"Content-Type": "application/x-www-form-urlencoded"})
 cookies = [value for key, value in response.getheaders() if key.lower() == "set-cookie"]
 fitk = next((c.split(";")[0] for c in cookies if c.startswith("fitk=")), None)
-check("login with FIT_CODICE sets session", status == 303 and fitk is not None and "Secure" in (cookies[0] if cookies else ""), (status, cookies))
+check("login sets a secure session", status == 303 and fitk is not None and "Secure" in (cookies[0] if cookies else ""), status)
 if fitk:
     status, data, _ = request("GET", "/api/io", headers={"Cookie": fitk})
-    check("session is admin", status == 200 and (as_json(data) or {}).get("capo") is True, (status, data))
+    profile = as_json(data) or {}
+    check("session is admin", status == 200 and profile.get("capo") is True and profile.get("utente") == owner_login, status)
+    if "FIT_PASSWORD" in os.environ:
+        check("no installed demo plans", not profile.get("piano") and not profile.get("attese"))
     status, data, _ = request("GET", "/", headers={"Cookie": fitk})
     check("app shell 200 with EverFit title", status == 200 and b"<title>EverFit</title>" in data, status)
     status, data, _ = request("POST", "/api/esci", body="{}", headers={"Cookie": fitk, "Content-Type": "application/json"})

@@ -32,6 +32,7 @@ pub struct Conf {
     // accesso.py
     pub cookie_vecchio: String,
     pub codice_capo: String,
+    pub hash_capo: String,
     pub nome_capo: String,
     pub utente_capo: String,
     pub acceso: bool,
@@ -102,6 +103,7 @@ pub static CONF: LazyLock<Conf> = LazyLock::new(|| {
         cookie_vecchio: var("FIT_COOKIE", "").trim().to_string(),
         acceso: !codice_capo.is_empty(),
         codice_capo,
+        hash_capo: var("FIT_OWNER_HASH", ""),
         nome_capo,
         utente_capo,
         fuso,

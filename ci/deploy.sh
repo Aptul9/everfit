@@ -20,9 +20,17 @@ command -v sqlite3 >/dev/null
 # Shape of the secrets, without printing them: an empty path would turn "//" into an admin route.
 grep -Eq '^FIT_CODICE=[A-Za-z0-9]{12,}$' environment.new
 grep -Eq '^FIT_PERCORSO=[A-Za-z0-9_-]{32,}$' environment.new
-test "$(wc -l < environment.new)" -eq 2
+data_dir=/opt/everfit/data
+if grep -qx 'FIT_DATA_DIR=/opt/everfit/personal-data' environment.new; then
+  grep -Eq '^FIT_UTENTE=[a-z0-9][a-z0-9._-]{2,23}$' environment.new
+  grep -Eq "^FIT_OWNER_HASH='pbkdf2\\\$240000\\\$[a-f0-9]{32}\\\$[a-f0-9]{64}'$" environment.new
+  [[ $(wc -l < environment.new) -eq 5 ]]
+  data_dir=/opt/everfit/personal-data
+else
+  [[ $(wc -l < environment.new) -eq 2 ]]
+fi
 
-install -d -m 700 -o 10001 -g 10001 data
+install -d -m 700 -o 10001 -g 10001 "$data_dir"
 install -d -m 700 backups bin
 install -d -m 755 releases
 NEXT="$BASE/releases/$RELEASE"
@@ -31,8 +39,7 @@ install -d -m 755 "$NEXT"
 tar xzf release.tar.gz -C "$NEXT"
 # shellcheck source=ci/sqlite.sh
 source "$NEXT/ci/sqlite.sh"
-mv -f environment.new .env
-chmod 600 .env
+chmod 600 environment.new
 
 gunzip -c images.tar.gz | docker load
 # image-ids holds the config digests CI read from the archive of the images it tested.
@@ -48,13 +55,17 @@ cp image-ids "$NEXT/image-ids"
 rm -f images.tar.gz image-ids
 
 export RELEASE
-compose() { docker compose --project-directory "$NEXT" --env-file "$BASE/.env" "$@"; }
+compose() { docker compose --project-directory "$NEXT" --env-file "$BASE/environment.new" "$@"; }
 compose config --quiet
 
-if test -s data/fit.db; then
+previous_data=/opt/everfit/data
+if [[ -f .env ]] && grep -qx 'FIT_DATA_DIR=/opt/everfit/personal-data' .env; then
+  previous_data=/opt/everfit/personal-data
+fi
+if [[ -s "$previous_data/fit.db" ]]; then
   # SQLite online backup (the database is in WAL mode: a file copy could lose the last writes).
   backup="backups/fit.db.$(date -u +%Y%m%dT%H%M%SZ).${RELEASE:0:12}"
-  sqlite_snapshot data/fit.db "$backup"
+  sqlite_snapshot "$previous_data/fit.db" "$backup"
   echo "Database backup: $BASE/$backup"
 fi
 # Pre-deploy copies: 14 days, never fewer than the newest three. (No glob through ls: under pipefail an empty
@@ -62,7 +73,12 @@ fi
 find backups -maxdepth 1 -name 'fit.db.*' -printf '%T@ %p\n' | sort -rn | tail -n +4 | cut -d' ' -f2- | while read -r old; do
   if [ -n "$(find "$old" -mtime +14)" ]; then rm -f "$old"; fi
 done
-if test -L app; then readlink -f app > previous-release; fi
+if [[ -L app ]]; then
+  readlink -f app > previous-release
+  if [[ "$previous_data" != "$data_dir" ]]; then
+    install -m 600 .env "$(cat previous-release)/rollback.env"
+  fi
+fi
 printf '%s\n' "$NEXT" > candidate-release
 
 # The SNI route must exist before Caddy asks for its first certificate (TLS-ALPN through sslh).
@@ -81,6 +97,8 @@ fi
 rm -f "$BASE/sslh.candidate"
 
 compose up -d --wait --wait-timeout 120 --remove-orphans
+mv -f environment.new .env
+compose() { docker compose --project-directory "$NEXT" --env-file "$BASE/.env" "$@"; }
 ln -sfn "$NEXT" app.next
 mv -Tf app.next app
 compose ps

@@ -79,8 +79,7 @@ function controlla(nome) {
 }
 
 export function vistaProfilo(parti, rifai) {
-  // l'account dell'amministratore non ha domande: l'app e' nata su di lui
-  if (io.capo) { setTimeout(() => { if (location.hash.startsWith('#/profilo')) location.hash = '#/altro'; }); return []; }
+  if (io.capo && io.piano) { setTimeout(() => { if (location.hash.startsWith('#/profilo')) location.hash = '#/altro'; }); return []; }
   const primo = parti[0] === 'primo' || serveProfilo();
   const scritto = pianoScritto();
   // chi ha gia' la dieta non deve dire cosa non mangia: quelle domande servono solo a calcolare un piano.
