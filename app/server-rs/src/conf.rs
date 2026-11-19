@@ -36,7 +36,7 @@ pub struct Conf {
     pub utente_capo: String,
     pub acceso: bool,
     // server.py
-    pub fuso: chrono_tz::Tz,
+    pub fuso: jiff::tz::TimeZone,
     // spinta.py
     pub chi_siamo: String,
     pub spinta_prova: String,
@@ -83,7 +83,7 @@ pub static CONF: LazyLock<Conf> = LazyLock::new(|| {
         .unwrap_or_else(|| nome_capo.clone());
     let utente_capo = crate::accesso::nome_utente(&utente).unwrap_or_else(|| "admin".into());
     let fuso_nome = var("FIT_FUSO", "Europe/Rome");
-    let fuso: chrono_tz::Tz = fuso_nome.parse().unwrap_or_else(|_| {
+    let fuso = jiff::tz::TimeZone::get(&fuso_nome).unwrap_or_else(|_| {
         eprintln!("FIT_FUSO: fuso sconosciuto ({fuso_nome:?})");
         std::process::exit(1);
     });

@@ -247,16 +247,15 @@ fn avviso_fitai(app: Arc<App>) -> lavori::AlTermine {
 }
 
 fn in_sottofondo(app: &Arc<App>) {
-    use chrono::{Datelike, Timelike};
     // Conversations with the assistant are not kept: once a week, Sunday to Monday night (2-4 server time, UTC),
     // those of every account are deleted.
     let a = app.clone();
     std::thread::spawn(move || {
         loop {
             std::thread::sleep(Duration::from_secs(600));
-            let ora = chrono::Utc::now();
-            let lunedi = ora.format("%Y-%m-%d").to_string();
-            if ora.weekday() != chrono::Weekday::Mon || !(2..4).contains(&ora.hour()) {
+            let ora = jiff::Timestamp::now().to_zoned(jiff::tz::TimeZone::UTC);
+            let lunedi = ora.date().to_string();
+            if ora.weekday() != jiff::civil::Weekday::Monday || !(2..4).contains(&ora.hour()) {
                 continue;
             }
             let giro = || -> errore::Esito<()> {

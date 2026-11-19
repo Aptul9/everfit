@@ -33,8 +33,7 @@ hex = "0.4"
 base64 = "0.23"
 rand = "0.10"
 p256 = { version = "0.14", features = ["ecdsa", "getrandom"] }
-chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
-chrono-tz = "0.10"
+jiff = { version = "0.2.43", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo", "tzdb-bundle-always"] }
 regex = "1.13"
 url = "2.5"
 tracing = "0.1.44"

@@ -514,7 +514,7 @@ impl Dati {
                 if !stato.is_object() || !py::vero(py::get(&stato, "chat")) {
                     continue;
                 }
-                let giorno = chrono::Local::now().format("%Y-%m-%d").to_string();
+                let giorno = jiff::Zoned::now().date().to_string();
                 db.execute(
                     "INSERT OR IGNORE INTO stato_storia (utente, giorno, json) VALUES (?, ?, ?)",
                     params![u, giorno, json],

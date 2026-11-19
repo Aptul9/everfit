@@ -4,7 +4,13 @@ use crate::accesso;
 use crate::db::{Dati, riga, righe};
 use crate::errore::{Esito, errore};
 use crate::py;
-use chrono::{Duration as Giorni, NaiveDate};
+use jiff::{Span, Timestamp, civil::Date};
+
+fn oggi() -> Date {
+    Timestamp::now()
+        .to_zoned(crate::conf::conf().fuso.clone())
+        .date()
+}
 use regex::Regex;
 use rusqlite::{OptionalExtension, params};
 use serde_json::{Map, Value};
@@ -216,7 +222,7 @@ impl Dati {
                 if *a > agg {
                     return Ok(Some(carica(j))); // the server has a newer version: it wins
                 }
-                let giorno = chrono::Local::now().format("%Y-%m-%d").to_string();
+                let giorno = jiff::Zoned::now().date().to_string();
                 db.execute("INSERT OR IGNORE INTO stato_storia (utente, giorno, json) VALUES (?, ?, ?)", params![u, giorno, j])?;
                 db.execute(
                     "DELETE FROM stato_storia WHERE utente = ? AND giorno NOT IN \
@@ -235,9 +241,7 @@ impl Dati {
 
     // ---- measures
     pub fn misure(&self, u: i64) -> Esito<Value> {
-        let da = (chrono::Utc::now().with_timezone(&crate::conf::conf().fuso) - Giorni::days(120))
-            .format("%Y-%m-%d")
-            .to_string();
+        let da = oggi().saturating_sub(Span::new().days(120)).to_string();
         self.leggi(|db| {
             let pesate = righe(db, "SELECT * FROM pesate WHERE utente = ? ORDER BY quando", [u])?;
             let circ = righe(db, "SELECT * FROM circonferenze WHERE utente = ? ORDER BY giorno", [u])?;
@@ -258,22 +262,21 @@ impl Dati {
                 "passi: serve un numero (anche come testo, per esempio \"8.432\")",
             );
         };
-        let oggi = chrono::Utc::now()
-            .with_timezone(&crate::conf::conf().fuso)
-            .date_naive();
+        let oggi = oggi();
         let g = if py::vero(giorno) {
-            match NaiveDate::parse_from_str(&py::testo(giorno), "%Y-%m-%d") {
+            match Date::strptime("%Y-%m-%d", py::testo(giorno)) {
                 Ok(d) => d,
                 _ => return errore(400, "giorno deve essere AAAA-MM-GG"),
             }
         } else {
             oggi
         };
-        let diff = g - oggi;
-        if !(Giorni::days(-7) <= diff && diff <= Giorni::days(1)) {
+        let intervallo =
+            oggi.saturating_sub(Span::new().days(7))..=oggi.saturating_add(Span::new().days(1));
+        if !intervallo.contains(&g) {
             return errore(400, "giorno troppo lontano da oggi");
         }
-        let g = g.format("%Y-%m-%d").to_string();
+        let g = g.to_string();
         self.scrivi(|db| {
             db.execute(
                 "INSERT INTO passi (utente, giorno, passi, aggiornato) VALUES (?, ?, ?, ?) \

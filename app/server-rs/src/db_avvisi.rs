@@ -165,12 +165,13 @@ impl Dati {
         for t in telefoni {
             let u = t.get("utente").and_then(Value::as_i64).unwrap_or(0);
             let fuso = t.get("fuso").and_then(Value::as_i64).unwrap_or(120);
-            let li = chrono::Utc::now() + chrono::Duration::minutes(fuso);
-            let oggi = li.format("%Y-%m-%d").to_string();
-            let minuti = {
-                use chrono::Timelike;
-                (li.hour() * 60 + li.minute()) as i64
-            };
+            let now = jiff::Timestamp::now();
+            let li = now
+                .checked_add(jiff::Span::new().minutes(fuso.clamp(-720, 840)))
+                .unwrap_or(now)
+                .to_zoned(jiff::tz::TimeZone::UTC);
+            let oggi = li.date().to_string();
+            let minuti = i64::from(li.hour()) * 60 + i64::from(li.minute());
             let orari: Value = serde_json::from_str(
                 t.get("orari")
                     .and_then(Value::as_str)
