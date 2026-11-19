@@ -207,7 +207,7 @@ impl Dati {
                         u,
                         &etichetta,
                         titolo,
-                        &format!("Segna {cosa} su FitFuel: basta un tocco."),
+                        &format!("Segna {cosa} su EverFit: basta un tocco."),
                         Some("./#/oggi"),
                     )?;
                 }

@@ -69,6 +69,10 @@ fn fiacchi() -> std::sync::MutexGuard<'static, HashMap<String, f64>> {
     FIACCHI.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+pub fn rimetti(nome: &str) {
+    fiacchi().remove(nome);
+}
+
 fn nome(chi: &str) -> String {
     match chi {
         "gemini" => "Gemini",

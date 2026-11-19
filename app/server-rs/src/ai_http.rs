@@ -8,7 +8,7 @@ use serde_json::{Map, Value, json};
 use std::sync::LazyLock;
 use std::time::Duration;
 
-pub const UA: &str = "FitFuel/1.0 (app personale di dieta)";
+pub const UA: &str = "EverFit/1.0 (app personale di dieta)";
 
 static CLIENT: LazyLock<Client> = LazyLock::new(|| {
     // rustls with the ring provider (no C toolchain for the static build); roots from the system CA store

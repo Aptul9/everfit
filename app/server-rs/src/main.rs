@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! EverFit server: serves the app's files and keeps each person's data in SQLite. Drop-in replacement of the Python
 //! server (app/server/server.py): same flags, environment, API and database.
 //!
@@ -319,6 +321,28 @@ async fn segnale_di_fine() {
 }
 
 fn main() -> std::process::ExitCode {
+    if std::env::args().skip(1).eq(["--healthcheck"]) {
+        use std::io::{Read, Write};
+        use std::net::{Ipv4Addr, TcpStream};
+        let timeout = Duration::from_secs(3);
+        let address = SocketAddr::from((Ipv4Addr::LOCALHOST, 8080));
+        let check = || -> std::io::Result<bool> {
+            let mut stream = TcpStream::connect_timeout(&address, timeout)?;
+            stream.set_read_timeout(Some(timeout))?;
+            stream.set_write_timeout(Some(timeout))?;
+            stream.write_all(
+                b"GET /api/health HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+            )?;
+            let mut status = [0; 13];
+            stream.read_exact(&mut status)?;
+            Ok(&status == b"HTTP/1.1 200 ")
+        };
+        return if matches!(check(), Ok(true)) {
+            std::process::ExitCode::SUCCESS
+        } else {
+            std::process::ExitCode::FAILURE
+        };
+    }
     let a = match argomenti() {
         Ok(a) => a,
         Err(e) => {

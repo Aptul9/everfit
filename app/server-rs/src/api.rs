@@ -235,7 +235,7 @@ pub fn api(c: &mut Ctx, metodo: &str, path: &str) -> Esito<Risposta> {
             let quanti = d.avvisa(
                 u,
                 &etichetta,
-                "FitFuel",
+                "EverFit",
                 "Le notifiche funzionano.",
                 Some("./"),
             )?;
@@ -301,7 +301,9 @@ pub fn api(c: &mut Ctx, metodo: &str, path: &str) -> Esito<Risposta> {
             let Some(motore) = motore else {
                 return errore(503, "Non c'e' nessuna chiave");
             };
-            return ok(parere::prova(&motore)?);
+            let esito = parere::prova(&motore)?;
+            lavori::rimetti(&motore.nome);
+            return ok(esito);
         }
         _ => {}
     }
