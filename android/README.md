@@ -6,6 +6,7 @@ The Android app is a [Trusted Web Activity](https://developer.chrome.com/docs/an
 
 | Path | What |
 |---|---|
+| `twa-manifest.json` | Bubblewrap scaffold configuration; Gradle and `VERSION` control the shipped shell |
 | `app/build.gradle` | package `it.alias_pv60kg.everfit` (hyphen is not valid in a Java package), launch URL, colors, signing, R8 |
 | `VERSION` | `versionName`; bump it for a release people should notice |
 | `app/src/main/AndroidManifest.xml` | androidbrowserhelper activities and the notification delegation service |

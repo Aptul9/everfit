@@ -1,0 +1,30 @@
+{
+  "packageId": "it.alias_pv60kg.everfit",
+  "host": "fit.everbright.it",
+  "name": "EverFit",
+  "launcherName": "EverFit",
+  "display": "standalone",
+  "startUrl": "/",
+  "iconUrl": "https://fit.everbright.it/icons/icon-512.png",
+  "maskableIconUrl": "https://fit.everbright.it/icons/icon-maskable-512.png",
+  "themeColor": "#090A0D",
+  "themeColorDark": "#090A0D",
+  "navigationColor": "#090A0D",
+  "navigationColorDark": "#090A0D",
+  "backgroundColor": "#090A0D",
+  "appVersion": "1.0.0",
+  "appVersionCode": 1,
+  "minSdkVersion": 24,
+  "enableNotifications": true,
+  "enableSiteSettingsShortcut": false,
+  "fallbackType": "customtabs",
+  "orientation": "portrait",
+  "splashScreenFadeOutDuration": 300,
+  "generatorApp": "bubblewrap-cli",
+  "signingKey": {
+    "path": "./android.keystore",
+    "alias": "everfit"
+  },
+  "shortcuts": [],
+  "features": {}
+}
