@@ -13,3 +13,8 @@ updates:
     ignore:
       - dependency-name: python
         update-types: ["version-update:semver-minor", "version-update:semver-major"]
+  # android/: Android Gradle plugin and androidbrowserhelper
+  - package-ecosystem: gradle
+    directory: /android
+    schedule:
+      interval: weekly

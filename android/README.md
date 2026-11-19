@@ -37,4 +37,4 @@ Needs JDK 17+ and the Android SDK (platform 37, build-tools 37.0.0).
 ## Traps
 
 - Digital Asset Links: Google fetches `/.well-known/assetlinks.json` without cookies. With `FIT_CODICE` set, `app/server/server.py` serves only that exact path anonymously; any other path gets the login page. Without a valid file Chrome shows the URL bar.
-- The update check fetches another origin: the site CSP needs `connect-src https://servizi.everbright.it`, and servizi must send `Access-Control-Allow-Origin` on the JSON.
+- The update check fetches another origin: the CSP in `Caddyfile` allows `connect-src https://servizi.everbright.it` (`ci/test_deploy.py` checks it), and servizi sends `Access-Control-Allow-Origin: https://fit.everbright.it` on that JSON only.

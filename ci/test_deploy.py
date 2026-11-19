@@ -64,6 +64,12 @@ class DeploymentTests(unittest.TestCase):
         self.assertIn('Strict-Transport-Security "max-age=31536000"', CADDY)
         self.assertNotIn("preload", CADDY)
 
+    def test_csp_lets_the_android_shell_check_for_updates(self):
+        # js/apk.js reads EverFit-Android.json from the download page; nothing else leaves the origin
+        policy = re.search(r'Content-Security-Policy "([^"]+)"', CADDY).group(1)
+        self.assertEqual(re.search(r"connect-src ([^;]+)", policy).group(1).split(), ["'self'", "https://servizi.everbright.it"])
+        self.assertIn("https://servizi.everbright.it/download/EverFit-Android.json", (ROOT / "app/public/js/apk.js").read_text())
+
 
 if __name__ == "__main__":
     unittest.main()
