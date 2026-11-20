@@ -14,7 +14,7 @@ def main(path):
     client_id = os.environ.get("OIDC_CLIENT_ID", "").strip()
     secret = os.environ.get("OIDC_CLIENT_SECRET", "").strip()
     if not (issuer and client_id and secret):
-        print("EverID: not configured, username login only")
+        print("OIDC: not configured, interactive login unavailable")
         return
     if not ISSUER.fullmatch(issuer):
         raise SystemExit("Invalid OIDC_ISSUER")
@@ -34,7 +34,7 @@ def main(path):
     with open(path, "a", encoding="utf-8", newline="\n") as env:
         for line in lines:
             print(line, file=env)
-    print("EverID: configured, username login %s" % ("off" if login == "0" else "on"))
+    print("OIDC: configured, local credential login disabled")
 
 
 if __name__ == "__main__":

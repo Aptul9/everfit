@@ -1,7 +1,5 @@
-//! Sign-in through the central account service (Authentik at `FIT_OIDC_ISSUER`), invisible to the person. When the app
-//! opens without a session it tries a silent OpenID Connect authorization (`prompt=none`): whoever is already signed
-//! in to the service goes straight in. Otherwise the app shows its own form, checked here through the service's flow
-//! executor; the "altre opzioni di accesso" link leads to the normal authorization page (passkeys, second factor).
+//! Sign-in through the central account service. An unauthenticated navigation tries silent authorization first;
+//! when no central session exists it continues directly to the interactive authorization page.
 //! Accounts are keyed by the service's `sub`, which for this provider equals `user.uid` of the flow login (checked on
 //! the live service 2026-11-20); the first login creates the account, the owner gets the admin one, and the
 //! `FIT_OIDC_GRUPPO` group is required. No page shows the service's name.
@@ -66,6 +64,21 @@ pub fn con_apk(base: &str, apk: Option<&str>) -> String {
         Some(a) => format!("{base}?apk={a}"),
         None => base.to_string(),
     }
+}
+
+fn destinazione_sicura(valore: &str) -> String {
+    let lower = valore.to_ascii_lowercase();
+    if valore.len() > 2048
+        || !valore.starts_with('/')
+        || valore.starts_with("//")
+        || valore.contains('\\')
+        || valore.chars().any(char::is_control)
+        || lower.starts_with("/%2f")
+        || lower.starts_with("/%5c")
+    {
+        return "/".into();
+    }
+    valore.to_string()
 }
 
 fn biscotto_provato() -> String {
@@ -146,6 +159,7 @@ struct Viaggio {
     nonce: String,
     muto: bool,
     apk: Option<String>,
+    destinazione: String,
 }
 
 fn firma_viaggio(segreto: &str, corpo: &str) -> String {
@@ -154,13 +168,14 @@ fn firma_viaggio(segreto: &str, corpo: &str) -> String {
 
 fn biscotto_viaggio(segreto: &str, v: &Viaggio, ora: f64) -> String {
     let corpo = format!(
-        "{}.{}.{}.{}.{}{}",
+        "{}.{}.{}.{}.{}{}.{}",
         v.stato,
         v.verificatore,
         v.nonce,
         py::int(ora),
         if v.muto { "m" } else { "n" },
-        v.apk.as_deref().unwrap_or("")
+        v.apk.as_deref().unwrap_or(""),
+        URL_SAFE_NO_PAD.encode(v.destinazione.as_bytes())
     );
     format!(
         "{COOKIE}={corpo}.{}; Path=/oidc/; Max-Age={}; Secure; HttpOnly; SameSite=Lax",
@@ -175,7 +190,7 @@ fn leggi_viaggio(segreto: &str, valore: &str, ora: f64) -> Option<Viaggio> {
         return None;
     }
     let parti: Vec<&str> = corpo.split('.').collect();
-    let [stato, verificatore, nonce, quando, modo] = parti.as_slice() else {
+    let [stato, verificatore, nonce, quando, modo, destinazione] = parti.as_slice() else {
         return None;
     };
     let quando: f64 = quando.parse().ok()?;
@@ -193,12 +208,21 @@ fn leggi_viaggio(segreto: &str, valore: &str, ora: f64) -> Option<Viaggio> {
         nonce: nonce.to_string(),
         muto,
         apk: apk(&format!("apk={}", &modo[1..])),
+        destinazione: destinazione_sicura(
+            &String::from_utf8(URL_SAFE_NO_PAD.decode(destinazione).ok()?).ok()?,
+        ),
     })
 }
 
 const VIAGGIO_FINITO: &str = "fito=; Path=/oidc/; Max-Age=0; Secure; HttpOnly; SameSite=Lax";
 
-fn autorizza(c: &Ctx, muto: bool, apk: Option<String>) -> Esito<Risposta> {
+fn autorizza(
+    c: &Ctx,
+    muto: bool,
+    apk: Option<String>,
+    destinazione: String,
+    richiedi_login: bool,
+) -> Esito<Risposta> {
     let i = indirizzi()?;
     let v = Viaggio {
         stato: casuale(),
@@ -206,6 +230,7 @@ fn autorizza(c: &Ctx, muto: bool, apk: Option<String>) -> Esito<Risposta> {
         nonce: casuale(),
         muto,
         apk,
+        destinazione,
     };
     let mut url =
         url::Url::parse(&i.autorizza).map_err(|_| Problema::new(502, CONFIGURATO_MALE))?;
@@ -220,6 +245,8 @@ fn autorizza(c: &Ctx, muto: bool, apk: Option<String>) -> Esito<Risposta> {
         .append_pair("code_challenge_method", "S256");
     if muto {
         url.query_pairs_mut().append_pair("prompt", "none");
+    } else if richiedi_login {
+        url.query_pairs_mut().append_pair("prompt", "login");
     }
     Ok(Risposta::testo(302, b"")
         .con("Location", String::from(url))
@@ -231,15 +258,10 @@ fn autorizza(c: &Ctx, muto: bool, apk: Option<String>) -> Esito<Risposta> {
 
 /// GET /oidc/login: the normal authorization page ("altre opzioni di accesso").
 pub fn entra(c: &Ctx) -> Esito<Risposta> {
-    autorizza(c, false, apk(&c.req.query))
-}
-
-/// Back to the app's own form, which then shows without another silent attempt.
-fn al_modulo(apk: Option<&str>) -> Risposta {
-    Risposta::testo(303, b"")
-        .con("Location", con_apk("/accedi", apk))
-        .con("Set-Cookie", biscotto_provato())
-        .con("Set-Cookie", VIAGGIO_FINITO)
+    let a = apk(&c.req.query);
+    let destinazione = con_apk("/", a.as_deref());
+    let uscito = !accesso::leggi_cookie(c.req.intestazione("Cookie"), "fitz").is_empty();
+    autorizza(c, false, a, destinazione, uscito)
 }
 
 /// A browser opening the app without a session: the silent attempt, unless it was just tried or the person logged out
@@ -257,13 +279,22 @@ pub fn prova_muta(c: &Ctx) -> Option<Risposta> {
         return None;
     }
     let biscotti = c.req.intestazione("Cookie");
-    if !accesso::leggi_cookie(biscotti, "fitm").is_empty()
-        || !accesso::leggi_cookie(biscotti, "fitz").is_empty()
-    {
-        return None;
-    }
+    let uscito = !accesso::leggi_cookie(biscotti, "fitz").is_empty();
     let a = apk(&c.req.query);
-    Some(autorizza(c, true, a.clone()).unwrap_or_else(|_| al_modulo(a.as_deref())))
+    let destinazione = if c.req.path == "/accedi" {
+        con_apk("/", a.as_deref())
+    } else {
+        destinazione_sicura(&format!(
+            "{}{}{}",
+            c.req.path,
+            if c.req.query.is_empty() { "" } else { "?" },
+            c.req.query
+        ))
+    };
+    Some(
+        autorizza(c, !uscito, a, destinazione, uscito)
+            .unwrap_or_else(|e| Risposta::html(e.codice, accesso::pagina_con(&e.testo, None))),
+    )
 }
 
 /// Who the service says this is.
@@ -425,21 +456,30 @@ pub fn torna(c: &mut Ctx) -> Esito<Risposta> {
     let muto = v.as_ref().is_some_and(|v| v.muto);
     let apk = v.as_ref().and_then(|v| v.apk.clone());
     let apk = apk.as_deref();
+    let Some(v) = v else {
+        return Ok(pagina(400, "Accesso scaduto: riprova.", false, None));
+    };
+    if !accesso::uguali(&campo("state"), &v.stato) {
+        return Ok(pagina(400, "Accesso scaduto: riprova.", muto, apk));
+    }
     if !campo("error").is_empty() {
         tracing::info!(
             "EverID: ritorno con errore {:?} (muto {muto})",
             campo("error")
         );
         // login_required after prompt=none: nobody signed in to the service, the app's own form
-        if muto {
-            return Ok(al_modulo(apk));
+        if muto
+            && matches!(
+                campo("error").as_str(),
+                "login_required" | "interaction_required"
+            )
+        {
+            let uscito = !accesso::leggi_cookie(c.req.intestazione("Cookie"), "fitz").is_empty();
+            return autorizza(c, false, v.apk.clone(), v.destinazione.clone(), uscito);
         }
         return Ok(pagina(401, "Accesso annullato.", false, apk));
     }
-    let Some(v) = v else {
-        return Ok(pagina(400, "Accesso scaduto: riprova.", false, None));
-    };
-    if campo("code").is_empty() || !accesso::uguali(&campo("state"), &v.stato) {
+    if campo("code").is_empty() {
         return Ok(pagina(400, "Accesso scaduto: riprova.", muto, apk));
     }
     let i = match indirizzi() {
@@ -473,14 +513,15 @@ pub fn torna(c: &mut Ctx) -> Esito<Risposta> {
         Err(e) => return Err(e),
     };
     Ok(Risposta::testo(303, b"")
-        .con("Location", con_apk("/", apk))
+        .con("Location", v.destinazione)
         .con("Set-Cookie", VIAGGIO_FINITO)
         .biscotti(b))
 }
 
-// ---------- the app's own form ----------
+// ---------- disabled form implementation: no HTTP route calls this code ----------
 
 /// The outcome of the form: the cookies of the new session, or the status and sentence to show.
+#[allow(dead_code)]
 pub enum Modulo {
     Dentro(Vec<String>),
     Rifiuto(u16, String),
@@ -512,6 +553,7 @@ fn fallito(ip: &str, ora: f64) {
 }
 
 /// POST /accedi with username (or e-mail) and password: checked on the service, never stored or logged.
+#[allow(dead_code)]
 pub fn modulo(c: &mut Ctx, utente: &str, password: &str) -> Esito<Modulo> {
     // Caddy sets X-Real-IP from the connection and drops what the client sent
     let ip = c
@@ -737,6 +779,7 @@ mod test {
             nonce: "n".repeat(43),
             muto: true,
             apk: Some("23".into()),
+            destinazione: "/?apk=23".into(),
         };
         let b = biscotto_viaggio("segreto", &v, 1000.0);
         let valore = b
@@ -776,6 +819,24 @@ mod test {
         assert_eq!(apk(""), None);
         assert_eq!(con_apk("/accedi", Some("23")), "/accedi?apk=23");
         assert_eq!(con_apk("/", None), "/");
+    }
+
+    #[test]
+    fn destinazione_solo_interna() {
+        assert_eq!(
+            destinazione_sicura("/index.html?apk=23"),
+            "/index.html?apk=23"
+        );
+        for valore in [
+            "https://elsewhere.invalid",
+            "//elsewhere.invalid",
+            "/%2felsewhere.invalid",
+            "/%5celsewhere.invalid",
+            "/\\elsewhere.invalid",
+            "/\r\nLocation: x",
+        ] {
+            assert_eq!(destinazione_sicura(valore), "/");
+        }
     }
 
     #[test]

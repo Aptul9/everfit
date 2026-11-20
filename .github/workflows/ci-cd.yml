@@ -29,7 +29,7 @@ jobs:
           python -m unittest discover -s ci -p 'test_*.py'
           for script in ci/*.sh; do bash -n "$script"; done
           shellcheck -x --severity=warning ci/*.sh
-      - name: Python reference suites
+      - name: OIDC-only server and reference suites
         run: python ci/prove.py
       - name: Rust checks
         run: |
@@ -74,7 +74,7 @@ jobs:
           docker cp "$container:/fit" "$work/fit"
           FIT_SERVER="$work/fit" python ci/prove.py
           python app/tools/prove/prova_differenziale.py "$work/fit"
-          python ci/prova_everid.py "$work/fit"
+          python ci/prova_oidc_only.py "$work/fit"
           python app/tools/prove/misura_server.py "$work/fit" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Run the images with the compose restrictions
         env:

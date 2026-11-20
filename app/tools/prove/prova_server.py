@@ -13,10 +13,15 @@ import subprocess
 import sys
 import tempfile
 import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "ci"))
+import prova_everid as provider_fixture
 
 APP, PARTENZA = sys.argv[1], sys.argv[2]
 PORTA = 8791
 CODICE, VECCHIO = "11112222", "vecchiocookie0123456789"
+provider = provider_fixture.Provider()
 cartella = tempfile.mkdtemp(prefix="fit-prova-")
 if PARTENZA != "-":
     shutil.copy(PARTENZA, os.path.join(cartella, "fit.db"))
@@ -26,12 +31,17 @@ if PARTENZA != "-":
     db.close()
 
 ambiente = dict(os.environ, FIT_CODICE=CODICE, FIT_COOKIE=VECCHIO, FIT_NOME="Admin", PYTHONIOENCODING="utf-8",
+                FIT_OIDC_ISSUER=provider.issuer, FIT_OIDC_CLIENT_ID=provider_fixture.CLIENT_ID,
+                FIT_OIDC_CLIENT_SECRET=provider_fixture.CLIENT_SECRET, FIT_OWNER_EMAIL=provider_fixture.OWNER,
+                FIT_SITO=provider_fixture.SITE, FIT_LOGIN_CODICE="0",
                 FIT_GEMINI_URL=os.environ.get("FIT_GEMINI_URL", "http://127.0.0.1:8799/v1beta/models/%s:generateContent"),
                 FIT_MISTRAL_URL=os.environ.get("FIT_MISTRAL_URL", "http://127.0.0.1:8799/v1/chat/completions"),
                 FIT_ATTESA_ASSISTENTE="2", FIT_LOCALE_URL="http://127.0.0.1:8799", FIT_SPINTA_PROVA="http://127.0.0.1:8799/spinta/",
                 FIT_DOMANDE_ORA="500")   # le prove fanno piu' di sessanta domande con lo stesso account
 # FIT_SERVER: il comando di un altro server da provare con le stesse richieste (il binario Rust); senza, quello Python
-comando = shlex.split(os.environ["FIT_SERVER"]) if os.environ.get("FIT_SERVER") else [sys.executable, "-u", os.path.join(APP, "server", "server.py")]
+if not os.environ.get("FIT_SERVER"):
+    raise SystemExit("FIT_SERVER is required: the OIDC-only suite tests the Rust server")
+comando = shlex.split(os.environ["FIT_SERVER"])
 server = subprocess.Popen(comando + ["--root", os.path.join(APP, "public"),
                            "--data", cartella, "--host", "127.0.0.1", "--port", str(PORTA)],
                           env=ambiente, stdout=open(os.path.join(cartella, "server.log"), "w", encoding="utf-8"), stderr=subprocess.STDOUT)
@@ -69,6 +79,20 @@ def controlla(nome, vero, dettaglio=""):
         sbagli.append(nome)
 
 
+def entra_oidc(uid):
+    provider.sso = uid
+    status, jar, _, _ = provider_fixture.silent(PORTA, provider)
+    assert status == 303 and jar.get("fitk"), (uid, status)
+    return jar["fitk"]
+
+
+def collega_oidc(uid, ident):
+    # Test fixture only: existing local person and synthetic subject represent the same person.
+    with sqlite3.connect(os.path.join(cartella, "fit.db")) as db:
+        db.execute("INSERT INTO everid (sub, utente, email, creato) VALUES (?, ?, ?, ?)",
+                   (uid, ident, "fixture@example.invalid", time.time()))
+
+
 try:
     for _ in range(50):
         try:
@@ -79,22 +103,19 @@ try:
 
     # ---- chi non e' entrato
     s, j, t, _, _ = chiedi("GET", "/")
-    controlla("senza cookie: pagina del codice (401)", s == 401 and b"Entra con il tuo nome utente" in t, s)
-    controlla("pagina del codice: chiede nome utente e password", b'name="utente"' in t and b'name="password"' in t)
+    controlla("senza cookie: pagina di accesso (401)", s == 401 and b'href="/oidc/login"' in t, s)
+    controlla("pagina senza form credenziali", b'name="utente"' not in t and b'name="password"' not in t)
     controlla("pagina del codice: immagini di avvio", t.count(b"apple-touch-startup-image") == 13, t.count(b"apple-touch-startup-image"))
     controlla("senza cookie: api 401", chiedi("GET", "/api/state")[0] == 401)
     controlla("senza cookie: icona visibile", chiedi("GET", "/icons/icon-192.png")[0] == 200)
     s, j, t, _, _ = chiedi("GET", "/manifest.webmanifest")
     controlla("senza cookie: manifest generico", s == 200 and j["start_url"] == "./", j)
     controlla("senza cookie: js non visibile", chiedi("GET", "/js/main.js")[0] == 401)
-    controlla("codice sbagliato: 401", chiedi("POST", "/accedi", modulo="utente=&password=00000000")[0] == 401)
+    controlla("form credenziali rifiutato", chiedi("POST", "/accedi", modulo="utente=&password=00000000")[0] == 403)
 
-    # ---- il capo entra con il suo codice
-    s, j, t, capo, h = chiedi("POST", "/accedi", modulo="utente=&password=1111+2222")
-    controlla("capo: entra con il solo codice, come prima (303 + cookie)", s == 303 and capo and h.get("Location") == "/", (s, capo, h))
-    controlla("capo: entra anche con nome utente e codice", chiedi("POST", "/accedi", modulo="utente=Admin&password=11112222")[0] == 303)
-    controlla("capo: nome utente giusto e password sbagliata", chiedi("POST", "/accedi", modulo="utente=admin&password=sbagliata1")[0] == 401)
-    controlla("nome utente che non esiste", chiedi("POST", "/accedi", modulo="utente=nessuno&password=11112222")[0] == 401)
+    # ---- il capo entra attraverso il provider OIDC sintetico
+    capo = entra_oidc("uid-owner")
+    controlla("capo: sessione OIDC creata", bool(capo))
     s, io, *_ = chiedi("GET", "/api/io", cookie=capo)
     controlla("capo: /api/io", s == 200 and io["id"] == 1 and io["capo"] and io["nome"] == "Admin" and io["utente"] == "admin" and io["bilancia"], io)
     s, stato, *_ = chiedi("GET", "/api/state", cookie=capo)
@@ -103,7 +124,7 @@ try:
     if PARTENZA != "-":
         controlla("capo: ha ritrovato i dati di prima", bool(stato) and len(misure["pesate"]) > 0, (len(stato), len(misure["pesate"])))
     # vecchio cookie e percorso segreto valgono come capo
-    controlla("vecchio cookie = capo", chiedi("GET", "/api/io", cookie=VECCHIO)[1]["id"] == 1)
+    controlla("vecchio cookie condiviso rifiutato", chiedi("GET", "/api/io", cookie=VECCHIO)[0] == 401)
     controlla("percorso segreto = capo", chiedi("GET", "/api/io", intestazioni={"X-Fit-Accesso": "ok"})[1]["id"] == 1)
     controlla("cookie inventato: fuori", chiedi("GET", "/api/io", cookie="pippo")[0] == 401)
 
@@ -122,27 +143,23 @@ try:
     attese = [a["utente"] for a in j["attese"]]
     controlla("in attesa: test", {"test"} <= set(attese), attese)
     controlla("capo: /api/io dice quanti account mancano", chiedi("GET", "/api/io", cookie=capo)[1].get("attese") == len(attese), chiedi("GET", "/api/io", cookie=capo)[1])
-    s, _, t, *_ = chiedi("POST", "/accedi", modulo="utente=Test&password=una-password-qualsiasi")
-    controlla("account in attesa: 401 con la spiegazione", s == 401 and "non è ancora attivo".encode() in t and b"Admin" in t, (s, t[-900:-600]))
-    s, j2, *_ = chiedi("POST", "/accedi", modulo="utente=test&password=una-password-qualsiasi", intestazioni={"Accept": "application/json"})
-    controlla("account in attesa: lo dice anche a uno script", s == 401 and "attivo" in (j2 or {}).get("errore", ""), j2)
-    s, _, t, *_ = chiedi("POST", "/accedi", modulo="utente=nessuno&password=una-password-qualsiasi")
-    controlla("nome utente sconosciuto: nessuna spiegazione in piu'", s == 401 and b"sbagliati" in t and "attivo".encode() not in t)
+    controlla("account in attesa: form credenziali rifiutato", chiedi("POST", "/accedi", modulo="utente=Test&password=una-password-qualsiasi")[0] == 403)
     PW_T = "prova-test.2026"
     s, di_prova, *_ = chiedi("POST", "/api/persone", corpo={"nome": "Test", "utente": "test", "password": PW_T}, cookie=capo)
     controlla("creo l'account in attesa", s == 200 and di_prova["utente"] == "test", di_prova)
     controlla("capo: un account in meno da attivare", chiedi("GET", "/api/io", cookie=capo)[1].get("attese") == len(attese) - 1)
-    s, _, t, *_ = chiedi("POST", "/accedi", modulo="utente=test&password=sbagliata-2026")
-    controlla("account creato: password sbagliata, messaggio normale", s == 401 and b"sbagliati" in t and "attivo".encode() not in t)
-    s, _, _, cookie_test, _ = chiedi("POST", "/accedi", modulo="utente=test&password=" + PW_T)
+    provider_fixture.USERS.append(provider_fixture.user("uid-test", "test", "fixture@example.invalid"))
+    collega_oidc("uid-test", di_prova["id"])
+    cookie_test = entra_oidc("uid-test")
+    s = 303
     io_test = chiedi("GET", "/api/io", cookie=cookie_test)[1]
     controlla("account creato: entra, ha il suo piano, non vede le attese", s == 303 and io_test["piano"] and not io_test["capo"] and io_test.get("attese") == 0, io_test)
     controlla("il suo piano e' quello scritto per lui", bool(chiedi("GET", "/api/piano", cookie=cookie_test)[1].get("settimana")))
     controlla("tolgo l'account di prova", chiedi("DELETE", "/api/persone/%d" % di_prova["id"], cookie=capo)[0] == 200)
-    controlla("Anna: password sbagliata", chiedi("POST", "/accedi", modulo="utente=anna&password=sbagliata-2026")[0] == 401)
-    controlla("Anna: la password da sola, senza nome utente, non entra", chiedi("POST", "/accedi", modulo="utente=&password=" + PW)[0] == 401)
-    s, j, t, cookie_anna, h = chiedi("POST", "/accedi", modulo="utente=ANNA&password=" + PW)
-    controlla("Anna entra", s == 303 and cookie_anna, s)
+    controlla("Anna: form locale rifiutato", chiedi("POST", "/accedi", modulo="utente=anna&password=" + PW)[0] == 403)
+    collega_oidc("uid-anna", anna["id"])
+    cookie_anna = entra_oidc("uid-anna")
+    controlla("Anna entra con OIDC", bool(cookie_anna))
     s, io_anna, *_ = chiedi("GET", "/api/io", cookie=cookie_anna)
     controlla("Anna: /api/io", io_anna["id"] == anna["id"] and not io_anna["capo"] and not io_anna["bilancia"] and not io_anna["piano"], io_anna)
     controlla("Anna: stato vuoto", chiedi("GET", "/api/state", cookie=cookie_anna)[1] == {})
@@ -196,7 +213,7 @@ try:
     chiedi("DELETE", "/api/passi/codice", cookie=capo)
     controlla("passi: scollegati, il codice non vale piu'", chiedi("POST", "/api/passi", corpo={"codice": codice, "passi": 1})[0] == 401
               and chiedi("GET", "/api/passi/codice", cookie=capo)[1]["attivo"] is False)
-    s, j, *_ = chiedi("PUT", "/api/state", corpo=dict(stato, updatedAt=ora + 20), cookie=VECCHIO)
+    s, j, *_ = chiedi("PUT", "/api/state", corpo=dict(stato, updatedAt=ora + 20), cookie=capo)
     controlla("capo: stato senza proprietario accettato (app di prima)", s == 200, (s, j))
 
     # ---- icona sulla Home
@@ -237,18 +254,17 @@ try:
     controlla("cambia nome", s == 200 and j["nome"] == "Annina", j)
     s, j, *_ = chiedi("POST", "/api/persone/%d/password" % anna["id"], corpo={"password": "nuova-password.26"}, cookie=capo)
     controlla("password nuova", s == 200 and j["ok"], j)
-    controlla("la password vecchia non entra", chiedi("POST", "/accedi", modulo="utente=anna&password=" + PW)[0] == 401)
-    controlla("la password nuova entra", chiedi("POST", "/accedi", modulo="utente=anna&password=nuova-password.26")[0] == 303)
+    controlla("la password locale non consente l'accesso", chiedi("POST", "/accedi", modulo="utente=anna&password=" + PW)[0] == 403)
+    controlla("Anna continua ad accedere con OIDC", bool(entra_oidc("uid-anna")))
     controlla("Anna non cambia le password degli altri", chiedi("POST", "/api/persone/1/password", corpo={"password": "qualcosa-2026"}, cookie=cookie_anna)[0] == 403)
     # il capo si sceglie una password sua: da li' entra con quella oppure, come prima, con il codice
-    controlla("capo: prima di sceglierla, quella password non entra", chiedi("POST", "/accedi", modulo="utente=admin&password=la-mia-password.26")[0] == 401)
+    controlla("capo: form locale rifiutato", chiedi("POST", "/accedi", modulo="utente=admin&password=la-mia-password.26")[0] == 403)
     controlla("capo: password troppo corta rifiutata", chiedi("POST", "/api/persone/1/password", corpo={"password": "corta"}, cookie=capo)[0] == 400)
     controlla("capo: si sceglie una password", chiedi("POST", "/api/persone/1/password", corpo={"password": "la-mia-password.26"}, cookie=capo)[0] == 200)
-    s, _, _, capo2, _ = chiedi("POST", "/accedi", modulo="utente=admin&password=la-mia-password.26")
-    controlla("capo: entra con la sua password", s == 303 and chiedi("GET", "/api/io", cookie=capo2)[1]["capo"] is True, s)
-    controlla("capo: entra ancora con nome utente e codice", chiedi("POST", "/accedi", modulo="utente=admin&password=11112222")[0] == 303)
-    controlla("capo: entra ancora con il solo codice", chiedi("POST", "/accedi", modulo="utente=&password=11112222")[0] == 303)
-    controlla("capo: la sua password da sola, senza nome utente, non entra", chiedi("POST", "/accedi", modulo="utente=&password=la-mia-password.26")[0] == 401)
+    capo2 = entra_oidc("uid-owner")
+    controlla("capo: accesso OIDC dopo cambio password locale", chiedi("GET", "/api/io", cookie=capo2)[1]["capo"] is True)
+    controlla("capo: login locale con codice rifiutato", chiedi("POST", "/accedi", modulo="utente=admin&password=11112222")[0] == 403)
+    controlla("capo: login locale con solo codice rifiutato", chiedi("POST", "/accedi", modulo="utente=&password=11112222")[0] == 403)
     controlla("capo: il cookie di prima vale ancora", chiedi("GET", "/api/io", cookie=capo)[1]["id"] == 1)
     controlla("il capo non si elimina", chiedi("DELETE", "/api/persone/1", cookie=capo)[0] == 400)
 
@@ -564,12 +580,9 @@ try:
     print("     tabelle:", sorted(r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")))
     db.close()
 
-    # ---- troppi tentativi
-    for _ in range(31):
-        s = chiedi("POST", "/accedi", modulo="utente=admin&password=99999999")[0]
-        if s == 429:
-            break
-    controlla("troppi codici sbagliati: 429", s == 429, s)
+    # ---- the app never accepts a local credential
+    s = chiedi("POST", "/accedi", modulo="utente=admin&password=99999999")[0]
+    controlla("form credenziali disabilitato", s == 403, s)
 
     # ---- le regole di FitAI dopo gli sbagli del 26/10/2026 (cioccolato preso per la barretta del piano, foto descritta
     # senza averla, correzione non fatta, "137 g di pollo oggi" diventato la dose del piano per sempre)
@@ -598,6 +611,8 @@ try:
 finally:
     server.terminate()
     server.wait(timeout=5)
+    provider.server.shutdown()
+    provider.server.server_close()
     uscita = open(os.path.join(cartella, "server.log"), encoding="utf-8").read()
     righe = uscita.strip().splitlines()
     print("---- registro del server (inizio e fine)")

@@ -12,7 +12,7 @@ services:
       FIT_NOME: ${FIT_UTENTE:-Admin}
       FIT_SITO: https://${FIT_DOMINIO:-fit.everbright.it}
       FIT_FUSO: Europe/Rome
-      # EverID: off while issuer, client id or secret is empty; FIT_LOGIN_CODICE=0 turns the username login off
+      # OIDC: an incomplete configuration leaves interactive login unavailable. The legacy flag is ignored by Rust.
       FIT_OIDC_ISSUER: ${FIT_OIDC_ISSUER:-}
       FIT_OIDC_CLIENT_ID: ${FIT_OIDC_CLIENT_ID:-}
       FIT_OIDC_CLIENT_SECRET: ${FIT_OIDC_CLIENT_SECRET:-}
