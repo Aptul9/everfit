@@ -1,15 +1,24 @@
 #!/usr/bin/env bash
 # CI rehearsal of the production deploy on the runner: real sslh on 443 routing the SNI name to the real Caddy port,
-# Python fixture then tested Rust image through docker save/load, ci/deploy.sh for both, then
+# Two OIDC-only Rust releases through docker save/load, ci/deploy.sh for both, then
 # ci/rollback.sh previous and disable. Only certificate trust differs: Caddy uses its internal CA here, so curl runs
 # with --insecure.
 set -euo pipefail
+if [[ "${1:-}" == "--isolated" ]]; then
+  exec python3 ci/rehearse_isolated.py
+fi
 RELEASE=${RELEASE:?}
 NEXT_RELEASE=$(printf '%s' "$RELEASE" | sha1sum | cut -c1-40)
 DOMAIN=fit.everbright.it
 ROOT=$PWD
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
+
+# Check the binary in the image against the synthetic OIDC provider before exercising deployment.
+container=$(docker create "everfit:$RELEASE")
+docker cp "$container:/fit" "$work/fit"
+docker rm "$container" >/dev/null
+python3 ci/prova_oidc_only.py "$work/fit"
 
 sudo DEBIAN_FRONTEND=noninteractive apt-get -qq install -y sslh sqlite3 zstd > /dev/null
 sudo tee /etc/sslh.cfg > /dev/null <<'CFG'
@@ -45,7 +54,14 @@ ship() {   # what the deploy job copies to the VM
   docker save "everfit:$tag" "everfit-web:$tag" -o "$work/images.tar"
   tar -xOf "$work/images.tar" manifest.json | python3 ci/image_config.py > "$work/image-ids"
   gzip -c "$work/images.tar" > "$work/images.tar.gz"
-  git archive --format=tar.gz HEAD docker-compose.yml ci > "$work/release.tar.gz"
+  if [[ "${EVERFIT_REHEARSE_WORKTREE:-0}" == 1 ]]; then
+    GIT_INDEX_FILE="$work/index" git read-tree HEAD
+    GIT_INDEX_FILE="$work/index" git add -A -- docker-compose.yml ci
+    tree=$(GIT_INDEX_FILE="$work/index" git write-tree)
+    git -c core.autocrlf=false archive --format=tar.gz "$tree" docker-compose.yml ci > "$work/release.tar.gz"
+  else
+    git -c core.autocrlf=false archive --format=tar.gz HEAD docker-compose.yml ci > "$work/release.tar.gz"
+  fi
   printf 'FIT_CODICE=%s\nFIT_PERCORSO=%s\n' "$FIT_CODICE" "$FIT_PERCORSO" > "$work/environment.new"
   if [[ "${2:-}" == personal ]]; then
     python3 ci/owner_env.py "$work/environment.new"
@@ -60,11 +76,11 @@ state() {
   curl --fail --silent --show-error --insecure "$@" "https://$DOMAIN/$FIT_PERCORSO/api/state"
 }
 
-python_state='{"di":1,"updatedAt":1,"rehearsal":"python"}'
+previous_state='{"di":1,"updatedAt":1,"rehearsal":"previous"}'
 rust_state='{"di":1,"updatedAt":2,"rehearsal":"rust"}'
 
-echo '::group::First deploy (Python reference)'
-docker build --pull -f ci/Dockerfile.python -t "everfit:$NEXT_RELEASE" .
+echo '::group::First deploy (OIDC-only Rust)'
+docker tag "everfit:$RELEASE" "everfit:$NEXT_RELEASE"
 docker tag "everfit-web:$RELEASE" "everfit-web:$NEXT_RELEASE"
 ship "$NEXT_RELEASE"
 echo '::endgroup::'
@@ -72,7 +88,7 @@ grep -q "\"$DOMAIN\"" /etc/sslh.cfg
 python3 ci/smoke.py --url "https://$DOMAIN" --insecure
 sudo test -s /etc/systemd/system/backup-dati.service.d/everfit.conf
 sudo sh -c 'ls -l /var/backups/vm-dati/everfit-*.tar.zst'
-state -X PUT --data-binary "$python_state" >/dev/null
+state -X PUT --data-binary "$previous_state" >/dev/null
 
 echo '::group::Upgrade (tested Rust image)'
 before=$(sudo sha256sum /etc/sslh.cfg)
@@ -83,9 +99,9 @@ test "$(sudo readlink -f /opt/everfit/app)" = "/opt/everfit/releases/$RELEASE"
 test "$(sudo cat /opt/everfit/previous-release)" = "/opt/everfit/releases/$NEXT_RELEASE"
 backup=$(sudo find /opt/everfit/backups -name "fit.db.*.${RELEASE:0:12}" -print -quit)
 test -n "$backup"
-test "$(sudo sqlite3 -readonly "$backup" 'SELECT json FROM stato WHERE utente=1;')" = "$python_state"
+test "$(sudo sqlite3 -readonly "$backup" 'SELECT json FROM stato WHERE utente=1;')" = "$previous_state"
 python3 ci/smoke.py --url "https://$DOMAIN" --insecure
-test "$(state)" = "$python_state"
+test "$(state)" = "$previous_state"
 state -X PUT --data-binary "$rust_state" >/dev/null
 
 echo '::group::Restore a Rust-era snapshot in scratch'
@@ -114,9 +130,9 @@ docker tag "everfit-web:$RELEASE" "everfit-web:$personal_release"
 (
   export FIT_UTENTE=personal-owner
   export FIT_PASSWORD="fixture.${RELEASE:0:8}+"
-  # EverID configured with the username login still on: the env file grows by five checked lines
-  export OIDC_ISSUER=https://id.everbright.it/application/o/everfit/ OIDC_CLIENT_ID=everfit
-  export OIDC_CLIENT_SECRET="fixture-${RELEASE:0:16}" FIT_OWNER_EMAIL=owner@everfit.invalid FIT_LOGIN_CODICE=1
+  # Synthetic issuer; the packaged binary's OIDC round trip is tested separately against the fake provider.
+  export OIDC_ISSUER=https://id.test/application/o/everfit/ OIDC_CLIENT_ID=everfit
+  export OIDC_CLIENT_SECRET="fixture-${RELEASE:0:16}" FIT_OWNER_EMAIL=owner@everfit.invalid FIT_LOGIN_CODICE=0
   ship "$personal_release" personal
   test "$(sudo grep -c '^FIT_OIDC_' /opt/everfit/.env)" = 3
   python3 ci/smoke.py --url "https://$DOMAIN" --insecure

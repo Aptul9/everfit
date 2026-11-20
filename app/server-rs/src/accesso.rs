@@ -123,6 +123,7 @@ pub fn nuovo_gettone() -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(casuali::<32>())
 }
 
+#[allow(dead_code)]
 pub fn troppi_sbagli() -> bool {
     let ora = crate::py::ora();
     let mut s = SBAGLI.lock().unwrap_or_else(|e| e.into_inner());
@@ -132,6 +133,7 @@ pub fn troppi_sbagli() -> bool {
     s.len() >= MAX_SBAGLI
 }
 
+#[allow(dead_code)]
 pub fn segna_sbaglio() {
     SBAGLI
         .lock()
@@ -218,11 +220,15 @@ pub fn escape(s: &str) -> String {
     out
 }
 
-const ALTRE: &str = "\n  <a href=\"/oidc/login__APKQ__\" style=\"color:#a6abb8;font-size:14px;text-decoration:underline\">altre opzioni di accesso</a>";
+const ALTRE: &str = "\n  <a href=\"/oidc/login__APKQ__\" style=\"color:#0d1400;background:#c8ff4d;border-radius:18px;padding:18px;text-decoration:none;font-weight:700\">Accedi</a>";
 
-/// The login page. Without the central account service it is byte for byte the Python one; with it, a small link to
-/// the normal authorization page. `apk` is the Android shell's `?apk=<versionCode>`, kept through the login.
+/// Login page linking to the central authorization page, retaining the Android shell's version query.
 pub fn pagina_con(messaggio: &str, apk: Option<&str>) -> Vec<u8> {
+    let messaggio = if messaggio.is_empty() && !crate::oidc::attivo() {
+        "Accesso temporaneamente non disponibile."
+    } else {
+        messaggio
+    };
     let altre = if crate::oidc::attivo() {
         ALTRE.replace(
             "__APKQ__",
@@ -233,13 +239,8 @@ pub fn pagina_con(messaggio: &str, apk: Option<&str>) -> Vec<u8> {
     };
     PAGINA
         .replace("__ALTRE__", &altre)
-        .replace(
-            "__APK__",
-            &apk.map(|a| format!("?apk={a}")).unwrap_or_default(),
-        )
         .replace("__AVVIO__", &avvio_iphone("/"))
         .replace("__MESSAGGIO__", &escape(messaggio))
-        .replace("__FUOCO__", "autofocus")
         .into_bytes()
 }
 

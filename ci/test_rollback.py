@@ -76,3 +76,15 @@ class RollbackPreflight(unittest.TestCase):
         result = self.rollback()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("image digest list missing or empty", result.stderr)
+
+    def test_explicit_release_uses_same_digest_preflight(self):
+        result = subprocess.run(["bash", self.script, "release", TAG], env=self.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.count("matches the retained release"), 2)
+        self.assertEqual((self.base / "app").resolve(), self.release)
+
+    def test_explicit_release_rejects_invalid_sha(self):
+        result = subprocess.run(["bash", self.script, "release", "../outside"], env=self.env, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("release requires a 40-character SHA", result.stderr)
+        self.assertFalse((self.base / "compose-called").exists())
