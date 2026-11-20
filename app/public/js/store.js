@@ -367,7 +367,7 @@ export async function esci() {
   const j = await r.json().catch(() => ({}));
   dimentica();
   try { localStorage.removeItem(CHIAVE_IO); } catch { /* niente */ }
-  location.replace(typeof j.dove === 'String' && j.dove.startsWith('https://') ? j.dove : 'accedi');
+  location.replace(/^https:\/\//.test(j.dove || '') ? j.dove : 'accedi');
 }
 
 export async function rinomina(nome) {

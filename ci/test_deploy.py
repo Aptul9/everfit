@@ -77,6 +77,16 @@ class DeploymentTests(unittest.TestCase):
         self.assertEqual(re.search(r"connect-src ([^;]+)", policy).group(1).split(), ["'self'", "https://servizi.everbright.it"])
         self.assertIn("https://servizi.everbright.it/download/EverFit-Android.json", (ROOT / "app/public/js/apk.js").read_text())
 
+    def test_no_typeof_compared_to_a_capitalised_name(self):
+        # typeof gives lowercase names: `typeof x === 'String'` is always false (it hid the EverID logout once)
+        for path in (ROOT / "app/public").rglob("*.js"):
+            self.assertIsNone(re.search(r"typeof [^=;]+===? *'[A-Z]", path.read_text(encoding="utf-8")), path.name)
+
+    def test_everid_logout_follows_the_server_address(self):
+        store = (ROOT / "app/public/js/store.js").read_text(encoding="utf-8")
+        self.assertIn("j.dove", store)
+        self.assertRegex(store, r"location\.replace\([^;]*j\.dove[^;]*'accedi'\)")
+
 
 if __name__ == "__main__":
     unittest.main()
