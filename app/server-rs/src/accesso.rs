@@ -218,24 +218,25 @@ pub fn escape(s: &str) -> String {
     out
 }
 
-const STILE_EVERID: &str = "\n<style>\n  .everid { display: flex; align-items: center; justify-content: center; height: 56px; border-radius: 18px; font-size: 17px; font-weight: 700; color: #0d1400; text-decoration: none;\n    background: linear-gradient(135deg, #c8ff4d, #6dffa0); }\n</style>";
-const SOLO_EVERID: &str =
-    "\n<style>\n  form > p:not(.errore), form > input, form > button { display: none; }\n</style>";
-const BOTTONE_EVERID: &str =
-    "\n  <a class=\"everid\" href=\"/oidc/login\" role=\"button\">Entra con EverID</a>";
+const ALTRE: &str = "\n  <a href=\"/oidc/login__APKQ__\" style=\"color:#a6abb8;font-size:14px;text-decoration:underline\">altre opzioni di accesso</a>";
 
-/// Without EverID the page is byte for byte the Python one; with it, the EverID button, and the username form only
-/// while the old login is still on.
-pub fn pagina(messaggio: &str) -> Vec<u8> {
-    let (stile, bottone) = if crate::oidc::attivo() {
-        let solo = if conf().login_codice { "" } else { SOLO_EVERID };
-        (format!("{STILE_EVERID}{solo}"), BOTTONE_EVERID)
+/// The login page. Without the central account service it is byte for byte the Python one; with it, a small link to
+/// the normal authorization page. `apk` is the Android shell's `?apk=<versionCode>`, kept through the login.
+pub fn pagina_con(messaggio: &str, apk: Option<&str>) -> Vec<u8> {
+    let altre = if crate::oidc::attivo() {
+        ALTRE.replace(
+            "__APKQ__",
+            &apk.map(|a| format!("?apk={a}")).unwrap_or_default(),
+        )
     } else {
-        (String::new(), "")
+        String::new()
     };
     PAGINA
-        .replace("__STILE__", &stile)
-        .replace("__EVERID__", bottone)
+        .replace("__ALTRE__", &altre)
+        .replace(
+            "__APK__",
+            &apk.map(|a| format!("?apk={a}")).unwrap_or_default(),
+        )
         .replace("__AVVIO__", &avvio_iphone("/"))
         .replace("__MESSAGGIO__", &escape(messaggio))
         .replace("__FUOCO__", "autofocus")
