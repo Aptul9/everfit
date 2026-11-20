@@ -36,6 +36,14 @@ pub struct Conf {
     pub nome_capo: String,
     pub utente_capo: String,
     pub acceso: bool,
+    // EverID (OpenID Connect): off while issuer, client id or secret is missing
+    pub oidc_issuer: String,
+    pub oidc_client_id: String,
+    pub oidc_segreto: String,
+    pub oidc_gruppo: String,
+    pub email_capo: String,
+    /// username and password login next to EverID; always on while EverID is not configured
+    pub login_codice: bool,
     // server.py
     pub fuso: jiff::tz::TimeZone,
     // spinta.py
@@ -99,9 +107,19 @@ pub static CONF: LazyLock<Conf> = LazyLock::new(|| {
         }
         Err(_) => String::new(),
     };
+    let oidc_issuer = var("FIT_OIDC_ISSUER", "").trim().to_string();
+    let oidc_client_id = var("FIT_OIDC_CLIENT_ID", "").trim().to_string();
+    let oidc_segreto = var("FIT_OIDC_CLIENT_SECRET", "").trim().to_string();
+    let oidc = !oidc_issuer.is_empty() && !oidc_client_id.is_empty() && !oidc_segreto.is_empty();
     Conf {
         cookie_vecchio: var("FIT_COOKIE", "").trim().to_string(),
         acceso: !codice_capo.is_empty(),
+        login_codice: !oidc || var("FIT_LOGIN_CODICE", "1").trim() != "0",
+        oidc_issuer: if oidc { oidc_issuer } else { String::new() },
+        oidc_client_id,
+        oidc_segreto,
+        oidc_gruppo: var("FIT_OIDC_GRUPPO", "app-fit").trim().to_string(),
+        email_capo: var("FIT_OWNER_EMAIL", "").trim().to_lowercase(),
         codice_capo,
         hash_capo: var("FIT_OWNER_HASH", ""),
         nome_capo,

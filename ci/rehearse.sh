@@ -50,6 +50,7 @@ ship() {   # what the deploy job copies to the VM
   if [[ "${2:-}" == personal ]]; then
     python3 ci/owner_env.py "$work/environment.new"
   fi
+  python3 ci/everid_env.py "$work/environment.new"
   sudo cp "$work/release.tar.gz" "$work/images.tar.gz" "$work/image-ids" "$work/environment.new" /opt/everfit/
   sudo tar xzf /opt/everfit/release.tar.gz -C /opt/everfit ci/deploy.sh
   sudo env PATH="$stubs:$PATH" FIT_TLS=internal EVERFIT_CHECK_OTHERS= bash /opt/everfit/ci/deploy.sh "$tag"
@@ -113,8 +114,13 @@ docker tag "everfit-web:$RELEASE" "everfit-web:$personal_release"
 (
   export FIT_UTENTE=personal-owner
   export FIT_PASSWORD="fixture.${RELEASE:0:8}+"
+  # EverID configured with the username login still on: the env file grows by five checked lines
+  export OIDC_ISSUER=https://id.everbright.it/application/o/everfit/ OIDC_CLIENT_ID=everfit
+  export OIDC_CLIENT_SECRET="fixture-${RELEASE:0:16}" FIT_OWNER_EMAIL=owner@everfit.invalid FIT_LOGIN_CODICE=1
   ship "$personal_release" personal
+  test "$(sudo grep -c '^FIT_OIDC_' /opt/everfit/.env)" = 3
   python3 ci/smoke.py --url "https://$DOMAIN" --insecure
+  curl --silent --insecure "https://$DOMAIN/accedi" | grep -q 'href="/oidc/login"'
   test "$(state)" = '{}'
   test "$(sudo sqlite3 -readonly /opt/everfit/data/fit.db 'SELECT json FROM stato WHERE utente=1;')" = "$rust_state"
   sudo env PATH="$stubs:$PATH" FIT_TLS=internal bash ci/rollback.sh previous

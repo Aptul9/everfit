@@ -22,6 +22,7 @@ mod db_avvisi;
 mod db_stato;
 mod errore;
 mod lavori;
+mod oidc;
 mod parere;
 mod ponte;
 mod py;

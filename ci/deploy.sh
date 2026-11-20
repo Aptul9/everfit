@@ -21,14 +21,24 @@ command -v sqlite3 >/dev/null
 grep -Eq '^FIT_CODICE=[A-Za-z0-9]{12,}$' environment.new
 grep -Eq '^FIT_PERCORSO=[A-Za-z0-9_-]{32,}$' environment.new
 data_dir=/opt/everfit/data
+base_lines=2
 if grep -qx 'FIT_DATA_DIR=/opt/everfit/personal-data' environment.new; then
   grep -Eq '^FIT_UTENTE=[a-z0-9][a-z0-9._-]{2,23}$' environment.new
   grep -Eq "^FIT_OWNER_HASH='pbkdf2\\\$240000\\\$[a-f0-9]{32}\\\$[a-f0-9]{64}'$" environment.new
-  [[ $(wc -l < environment.new) -eq 5 ]]
+  base_lines=5
   data_dir=/opt/everfit/personal-data
-else
-  [[ $(wc -l < environment.new) -eq 2 ]]
 fi
+# EverID (ci/everid_env.py): issuer, client id and secret together, owner e-mail and login flag optional.
+everid_lines=$(grep -c '^FIT_OIDC_\|^FIT_OWNER_EMAIL=\|^FIT_LOGIN_CODICE=' environment.new || true)
+if [[ $everid_lines -gt 0 ]]; then
+  grep -Eq '^FIT_OIDC_ISSUER=https://[a-z0-9.-]+/application/o/[a-z0-9-]+/$' environment.new
+  grep -Eq '^FIT_OIDC_CLIENT_ID=[A-Za-z0-9._~-]+$' environment.new
+  grep -Eq '^FIT_OIDC_CLIENT_SECRET=[A-Za-z0-9._~-]+$' environment.new
+  [[ $(grep -c '^FIT_OIDC_' environment.new) -eq 3 ]]
+  [[ $(grep -c '^FIT_LOGIN_CODICE=' environment.new) -le 1 ]]
+  if grep -q '^FIT_LOGIN_CODICE=' environment.new; then grep -Eq '^FIT_LOGIN_CODICE=[01]$' environment.new; fi
+fi
+[[ $(wc -l < environment.new) -eq $((base_lines + everid_lines)) ]]
 
 install -d -m 700 -o 10001 -g 10001 "$data_dir"
 install -d -m 700 backups bin

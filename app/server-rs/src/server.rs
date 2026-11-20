@@ -214,6 +214,9 @@ fn accedi(c: &mut Ctx) -> Esito<Risposta> {
         ));
     }
     let d = &c.app.dati;
+    if k.is_empty() && !conf().login_codice {
+        return Ok(rispondi(403, "Entra con EverID.", vec![]));
+    }
     let password = {
         let p = campo("password");
         if p.is_empty() { campo("codice") } else { p }
@@ -414,6 +417,19 @@ fn dentro(c: &mut Ctx) -> Esito<Risposta> {
     }
     if path == "/accedi" {
         return accedi(c);
+    }
+    if crate::oidc::attivo() && (metodo == "GET" || metodo == "HEAD") {
+        let esito = match path.as_str() {
+            "/oidc/login" => Some(crate::oidc::entra(c)),
+            "/oidc/callback" => Some(crate::oidc::torna(c)),
+            _ => None,
+        };
+        if let Some(esito) = esito {
+            return match esito {
+                Err(e) if !e.database => Ok(Risposta::html(e.codice, accesso::pagina(&e.testo))),
+                altro => altro,
+            };
+        }
     }
     if path == "/api/passi"
         && metodo == "POST"

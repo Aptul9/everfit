@@ -363,9 +363,11 @@ export async function esci() {
   // senza la conferma del server il cookie resterebbe valido: meglio dirlo che far finta di essere usciti
   const r = await fetch('api/esci', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
   if (!r.ok) throw new Error('Il server non ha risposto bene');
+  // entrati con EverID: il server dice dove chiudere anche quella sessione (poi EverID riporta alla pagina d'accesso)
+  const j = await r.json().catch(() => ({}));
   dimentica();
   try { localStorage.removeItem(CHIAVE_IO); } catch { /* niente */ }
-  location.replace('accedi');
+  location.replace(typeof j.dove === 'String' && j.dove.startsWith('https://') ? j.dove : 'accedi');
 }
 
 export async function rinomina(nome) {
