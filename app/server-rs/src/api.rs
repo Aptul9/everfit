@@ -83,6 +83,11 @@ pub fn api(c: &mut Ctx, metodo: &str, path: &str) -> Esito<Risposta> {
         }
         ("POST", "/api/esci") => {
             let mut r = json!({"ok": true});
+            let mut cookie = accesso::biscotti_spenti();
+            if crate::oidc::attivo() {
+                // whoever leaves here is not signed in again silently, only with the form
+                cookie.push(crate::oidc::biscotto_uscito());
+            }
             if c.via == Some(Via::Cookie) {
                 // a session from EverID ends at EverID too; the app shows the login page when it has no "dove"
                 if let Some(dove) = crate::oidc::uscita(c)? {
@@ -90,7 +95,7 @@ pub fn api(c: &mut Ctx, metodo: &str, path: &str) -> Esito<Risposta> {
                 }
                 d.chiudi_sessione(u, &c.gettone)?;
             }
-            return Ok(Risposta::json(200, &r).biscotti(accesso::biscotti_spenti()));
+            return Ok(Risposta::json(200, &r).biscotti(cookie));
         }
         ("GET", "/api/piano") => {
             // the hand-written plan for this person; whoever has none gets it computed by the app from the profile

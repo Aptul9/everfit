@@ -173,11 +173,15 @@ static NESSUNO: Utente = Utente {
 /// The login page and its form. It also answers whoever is already in and wants to switch account.
 fn accedi(c: &mut Ctx) -> Esito<Risposta> {
     c.riconosci()?;
+    let apk = crate::oidc::apk(&c.req.query);
     if c.req.metodo != "POST" {
         if c.io.is_some() {
             return Ok(Risposta::testo(303, b"").con("Location", "./"));
         }
-        return Ok(Risposta::html(200, accesso::pagina("")));
+        if let Some(r) = crate::oidc::prova_muta(c) {
+            return Ok(r);
+        }
+        return Ok(Risposta::html(200, accesso::pagina_con("", apk.as_deref())));
     }
     let modulo = match &c.req.grezzo {
         Some(g) if !g.is_empty() && g.len() <= 2000 => py::parse_qs(&String::from_utf8_lossy(g)),
@@ -198,10 +202,10 @@ fn accedi(c: &mut Ctx) -> Esito<Risposta> {
         }
         if codice < 300 {
             return Risposta::testo(303, b"")
-                .con("Location", "/")
+                .con("Location", crate::oidc::con_apk("/", apk.as_deref()))
                 .biscotti(biscotti);
         }
-        Risposta::html(codice, accesso::pagina(testo))
+        Risposta::html(codice, accesso::pagina_con(testo, apk.as_deref()))
     };
     if !accesso::acceso() {
         return Ok(rispondi(200, "", vec![]));
@@ -213,9 +217,20 @@ fn accedi(c: &mut Ctx) -> Esito<Risposta> {
             vec![],
         ));
     }
+    if k.is_empty() && crate::oidc::attivo() && !conf().login_codice {
+        let password = {
+            let p = campo("password");
+            if p.is_empty() { campo("codice") } else { p }
+        };
+        let esito = crate::oidc::modulo(c, &campo("utente"), &password)?;
+        return Ok(match esito {
+            crate::oidc::Modulo::Dentro(b) => rispondi(200, "", b),
+            crate::oidc::Modulo::Rifiuto(codice, testo) => rispondi(codice, &testo, vec![]),
+        });
+    }
     let d = &c.app.dati;
     if k.is_empty() && !conf().login_codice {
-        return Ok(rispondi(403, "Entra con EverID.", vec![]));
+        return Ok(rispondi(403, "Accesso non disponibile.", vec![]));
     }
     let password = {
         let p = campo("password");
@@ -334,8 +349,16 @@ fn fuori(c: &Ctx) -> Esito<Risposta> {
     if (c.req.metodo == "GET" || c.req.metodo == "HEAD") && pubblico {
         return statico(c);
     }
+    if path == "/"
+        && let Some(r) = crate::oidc::prova_muta(c)
+    {
+        return Ok(r);
+    }
     // 401, not 200: so the service worker does not take this page for the app and store it
-    Ok(Risposta::html(401, accesso::pagina("")))
+    Ok(Risposta::html(
+        401,
+        accesso::pagina_con("", crate::oidc::apk(&c.req.query).as_deref()),
+    ))
 }
 
 /// `start_url` with the Home icon key after "#k=", keeping any query string (the Android app adds "?apk=N").
@@ -426,7 +449,10 @@ fn dentro(c: &mut Ctx) -> Esito<Risposta> {
         };
         if let Some(esito) = esito {
             return match esito {
-                Err(e) if !e.database => Ok(Risposta::html(e.codice, accesso::pagina(&e.testo))),
+                Err(e) if !e.database => Ok(Risposta::html(
+                    e.codice,
+                    accesso::pagina_con(&e.testo, crate::oidc::apk(&c.req.query).as_deref()),
+                )),
                 altro => altro,
             };
         }
