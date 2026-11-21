@@ -67,7 +67,7 @@ pub fn api(c: &mut Ctx, metodo: &str, path: &str) -> Esito<Risposta> {
                 "id": u, "nome": io.nome, "utente": io.utente, "capo": io.capo != 0,
                 "bilancia": io.capo != 0, "ai": !fila.is_empty(), "motore": motore.map(|m| m.nome), "fila": fila,
                 "piano": file_piano(c).is_some(),
-                "esci": matches!(c.via, Some(Via::Cookie)),
+                "esci": matches!(c.via, Some(Via::Cookie | Via::Vecchio)),
                 "attese": attese,
             });
             return Ok(Risposta::json(200, &r).biscotti(c.biscotti()));

@@ -1,6 +1,5 @@
-"""Runs the OIDC-only server suite and the reference suites with the fake AI service."""
+"""Runs the upstream test suites (app/tools/prove) with the fake AI service; every check must pass."""
 import os
-import shlex
 import subprocess
 import sys
 import time
@@ -8,14 +7,6 @@ from pathlib import Path
 
 APP = Path(__file__).resolve().parent.parent / "app"
 env = dict(os.environ, PYTHONIOENCODING="utf-8")
-if not env.get("FIT_SERVER"):
-    root = APP.parent
-    subprocess.run(["cargo", "build", "--locked"], cwd=root, env=env, check=True)
-    target = Path(env.get("CARGO_TARGET_DIR", root / "target"))
-    if not target.is_absolute():
-        target = root / target
-    binary = target / "debug" / ("fit.exe" if os.name == "nt" else "fit")
-    env["FIT_SERVER"] = shlex.quote(str(binary))
 
 
 def run(*args):

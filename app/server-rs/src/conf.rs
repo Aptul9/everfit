@@ -30,6 +30,7 @@ fn elenco(testo: &str) -> Vec<String> {
 
 pub struct Conf {
     // accesso.py
+    pub cookie_vecchio: String,
     pub codice_capo: String,
     pub hash_capo: String,
     pub nome_capo: String,
@@ -41,6 +42,8 @@ pub struct Conf {
     pub oidc_segreto: String,
     pub oidc_gruppo: String,
     pub email_capo: String,
+    /// username and password login next to EverID; always on while EverID is not configured
+    pub login_codice: bool,
     // server.py
     pub fuso: jiff::tz::TimeZone,
     // spinta.py
@@ -109,7 +112,9 @@ pub static CONF: LazyLock<Conf> = LazyLock::new(|| {
     let oidc_segreto = var("FIT_OIDC_CLIENT_SECRET", "").trim().to_string();
     let oidc = !oidc_issuer.is_empty() && !oidc_client_id.is_empty() && !oidc_segreto.is_empty();
     Conf {
+        cookie_vecchio: var("FIT_COOKIE", "").trim().to_string(),
         acceso: !codice_capo.is_empty(),
+        login_codice: !oidc || var("FIT_LOGIN_CODICE", "1").trim() != "0",
         oidc_issuer: if oidc { oidc_issuer } else { String::new() },
         oidc_client_id,
         oidc_segreto,

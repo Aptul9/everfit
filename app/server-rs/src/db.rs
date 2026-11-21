@@ -174,6 +174,10 @@ impl Dati {
                     params![conf.utente_capo, conf.hash_capo, accesso::CAPO],
                 )?;
             }
+            tx.execute(
+                "DELETE FROM sessioni WHERE vista < ?",
+                params![py::ora() - accesso::DURATA as f64],
+            )?;
             tx.commit()?;
             segreto
         };
@@ -273,7 +277,6 @@ impl Dati {
     }
 
     /// The account matching username and password, or None. Without a username only the admin code counts.
-    #[allow(dead_code)]
     pub fn entra(&self, nome: &str, segreto: &str) -> Esito<Option<Utente>> {
         let nome = nome.trim().to_lowercase();
         if segreto.is_empty() {
@@ -711,7 +714,9 @@ impl Dati {
         self.scrivi(|db| {
             db.execute_batch(
                 "CREATE TABLE IF NOT EXISTS everid (sub TEXT PRIMARY KEY, utente INTEGER NOT NULL UNIQUE, email TEXT NOT NULL, creato REAL NOT NULL);
-                 CREATE TABLE IF NOT EXISTS everid_sessioni (impronta TEXT PRIMARY KEY, id_token TEXT NOT NULL);",
+                 CREATE TABLE IF NOT EXISTS everid_sessioni (impronta TEXT PRIMARY KEY, id_token TEXT NOT NULL);
+                 DELETE FROM everid WHERE utente NOT IN (SELECT id FROM utenti);
+                 DELETE FROM everid_sessioni WHERE impronta NOT IN (SELECT impronta FROM sessioni);",
             )?;
             Ok(())
         })

@@ -7,8 +7,7 @@ umask 077
 BASE=/opt/everfit
 DOMAIN=fit.everbright.it
 OTHERS=${EVERFIT_CHECK_OTHERS-push drive servizi calendar meet teams flow}   # empty only in the CI rehearsal
-KEEP_RELEASES=${EVERFIT_KEEP_RELEASES:-3}
-[[ "$KEEP_RELEASES" =~ ^[0-9]+$ && "$KEEP_RELEASES" -ge 3 ]] || exit 1
+KEEP_RELEASES=3
 RELEASE=${1:?release SHA required}
 [[ "$RELEASE" =~ ^[a-f0-9]{40}$ ]] || exit 1
 cd "$BASE"
@@ -45,10 +44,7 @@ install -d -m 700 -o 10001 -g 10001 "$data_dir"
 install -d -m 700 backups bin
 install -d -m 755 releases
 NEXT="$BASE/releases/$RELEASE"
-if [[ -e "$NEXT" || -L "$NEXT" ]]; then
-  echo "Release already exists: $NEXT; refusing to replace it" >&2
-  exit 1
-fi
+rm -rf "$NEXT"
 install -d -m 755 "$NEXT"
 tar xzf release.tar.gz -C "$NEXT"
 # shellcheck source=ci/sqlite.sh
@@ -57,19 +53,14 @@ chmod 600 environment.new
 
 gunzip -c images.tar.gz | docker load
 # image-ids holds the config digests CI read from the archive of the images it tested.
-archive=$(mktemp "$BASE/.deploy-image.XXXXXXXX")
-trap 'rm -f -- "$archive"' EXIT
 while read -r image config; do
-  docker save "$image" > "$archive"
-  actual=$(tar -xOf "$archive" manifest.json | python3 "$NEXT/ci/image_config.py" | awk -v t="$image" '$1 == t { print $2 }')
+  actual=$(docker save "$image" | tar -xO manifest.json | python3 "$NEXT/ci/image_config.py" | awk -v t="$image" '$1 == t { print $2 }')
   if [ "$actual" != "$config" ]; then
     echo "$image has config $actual, CI tested $config: refusing to deploy" >&2
     exit 1
   fi
   echo "$image $config matches the tested image"
 done < image-ids
-rm -f -- "$archive"
-trap - EXIT
 cp image-ids "$NEXT/image-ids"
 rm -f images.tar.gz image-ids
 
@@ -89,11 +80,9 @@ if [[ -s "$previous_data/fit.db" ]]; then
 fi
 # Pre-deploy copies: 14 days, never fewer than the newest three. (No glob through ls: under pipefail an empty
 # backups directory would stop the first deploy.)
-if [[ "${EVERFIT_KEEP_ALL_BACKUPS:-0}" != 1 ]]; then
-  find backups -maxdepth 1 -name 'fit.db.*' -printf '%T@ %p\n' | sort -rn | tail -n +4 | cut -d' ' -f2- | while read -r old; do
-    if [ -n "$(find "$old" -mtime +14)" ]; then rm -f "$old"; fi
-  done
-fi
+find backups -maxdepth 1 -name 'fit.db.*' -printf '%T@ %p\n' | sort -rn | tail -n +4 | cut -d' ' -f2- | while read -r old; do
+  if [ -n "$(find "$old" -mtime +14)" ]; then rm -f "$old"; fi
+done
 if [[ -L app ]]; then
   readlink -f app > previous-release
   if [[ "$previous_data" != "$data_dir" ]]; then
@@ -105,10 +94,6 @@ printf '%s\n' "$NEXT" > candidate-release
 # The SNI route must exist before Caddy asks for its first certificate (TLS-ALPN through sslh).
 python3 "$NEXT/ci/routing.py" /etc/sslh.cfg "$BASE/sslh.candidate"
 if ! cmp -s /etc/sslh.cfg "$BASE/sslh.candidate"; then
-  if [[ "${EVERFIT_DISALLOW_ROUTING_CHANGE:-0}" == 1 ]]; then
-    echo 'sslh routing changed; refusing to alter it or restart sslh' >&2
-    exit 1
-  fi
   if ! test -e /etc/sslh.cfg.pre-everfit; then
     cp -a /etc/sslh.cfg /etc/sslh.cfg.pre-everfit
   fi

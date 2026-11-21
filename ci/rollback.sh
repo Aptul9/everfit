@@ -30,37 +30,23 @@ if test "${1:-previous}" = disable; then
   echo 'EverFit disabled; data preserved'
   exit 0
 fi
-case "${1:-previous}" in
-  previous)
-    [[ $# -le 1 ]] || fail "unexpected arguments for previous"
-    test -s "$BASE/previous-release" || fail "no previous release recorded in $BASE/previous-release"
-    PREVIOUS=$(cat "$BASE/previous-release") || fail "cannot read $BASE/previous-release"
-    ;;
-  release)
-    [[ $# -eq 2 && "$2" =~ ^[a-f0-9]{40}$ ]] || fail "release requires a 40-character SHA"
-    PREVIOUS="$BASE/releases/$2"
-    ;;
-  *) fail "unsupported operation: $1" ;;
-esac
+test "${1:-previous}" = previous || fail "unsupported operation: $1"
+test -s "$BASE/previous-release" || fail "no previous release recorded in $BASE/previous-release"
+PREVIOUS=$(cat "$BASE/previous-release") || fail "cannot read $BASE/previous-release"
 check_release "$PREVIOUS"
 export RELEASE=${PREVIOUS##*/}
 test -s "$PREVIOUS/image-ids" || fail "image digest list missing or empty: $PREVIOUS/image-ids"
 test -r "$PREVIOUS/ci/image_config.py" || fail "image manifest parser missing or unreadable: $PREVIOUS/ci/image_config.py"
 # Use the same archive config digests as deploy.sh, including bundles from the Python releases.
-archive=$(mktemp "$BASE/.rollback-image.XXXXXXXX") || fail "cannot create image verification archive"
-trap 'rm -f -- "$archive"' EXIT
 for image in "everfit:$RELEASE" "everfit-web:$RELEASE"; do
   expected=$(awk -v t="$image" '$1 == t { print $2 }' "$PREVIOUS/image-ids") ||
     fail "cannot read stored config digest for $image"
   [[ "$expected" =~ ^sha256:[a-f0-9]{64}$ ]] || fail "missing, duplicate or invalid stored config digest for $image"
-  docker save "$image" > "$archive" || fail "cannot save retained image: $image"
-  actual=$(tar -xOf "$archive" manifest.json | python3 "$PREVIOUS/ci/image_config.py" | awk -v t="$image" '$1 == t { print $2 }') ||
+  actual=$(docker save "$image" | tar -xO manifest.json | python3 "$PREVIOUS/ci/image_config.py" | awk -v t="$image" '$1 == t { print $2 }') ||
     fail "cannot read archive config digest for $image"
   [[ "$actual" == "$expected" ]] || fail "$image config mismatch: expected $expected, got ${actual:-none}"
   echo "$image $actual matches the retained release"
 done
-rm -f -- "$archive"
-trap - EXIT
 runtime="$BASE/.env"
 if [[ -f "$PREVIOUS/rollback.env" ]]; then runtime="$PREVIOUS/rollback.env"; fi
 docker compose --project-directory "$PREVIOUS" --env-file "$runtime" config --quiet ||
