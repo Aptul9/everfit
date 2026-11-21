@@ -346,6 +346,9 @@ impl Dati {
                 .optional()?)
         })?;
         let Some((u, vista)) = r else { return Ok(None) };
+        if py::ora() - vista >= accesso::DURATA as f64 {
+            return Ok(None);
+        }
         if py::ora() - vista > 3600.0 {
             // "last seen": updating it once in a while is enough
             self.scrivi(|db| {
