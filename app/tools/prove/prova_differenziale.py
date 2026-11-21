@@ -3,7 +3,6 @@
 import argparse
 from contextlib import contextmanager
 import http.client
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -19,7 +18,7 @@ import time
 APP = Path(__file__).resolve().parents[2]
 HOST = "127.0.0.1"
 ADMIN = {"X-Fit-Accesso": "ok"}
-LEGACY = {"Cookie": "fitk=fixture-session"}
+LEGACY = {"Cookie": "fitk=fixture-cookie"}
 
 
 def request(port, method, path, body=None, headers=None):
@@ -48,7 +47,7 @@ def server(command, public, data, *, with_process=False):
         listener.bind((HOST, 0))
         port = listener.getsockname()[1]
     env = {k: v for k, v in os.environ.items() if not k.startswith("FIT_") and not k.endswith("_API_KEY")}
-    env.update(FIT_CODICE="12345678", FIT_LOG="warn", TZ="UTC")
+    env.update(FIT_CODICE="12345678", FIT_COOKIE="fixture-cookie", FIT_LOG="warn", TZ="UTC")
     with tempfile.TemporaryFile() as log:
         process = subprocess.Popen(
             [*command, "--root", str(public), "--data", str(data), "--host", HOST, "--port", str(port)],
@@ -93,7 +92,7 @@ def main():
     parser.add_argument("rust", type=Path)
     parser.add_argument("--python-app", type=Path, default=APP)
     args = parser.parse_args()
-    python = [sys.executable, str(APP.parent / "ci/python_reference_no_login.py"), str(args.python_app.resolve())]
+    python = [sys.executable, str(args.python_app.resolve() / "server/server.py")]
     rust = [str(args.rust.resolve()), "--piani", str(args.python_app.resolve() / "server/piani")]
     with tempfile.TemporaryDirectory() as scratch:
         scratch = Path(scratch)
@@ -107,11 +106,6 @@ def main():
         with server(python, public, source) as port:
             assert request(port, "PUT", "/api/state", b'{"di":1,"updatedAt":1}', ADMIN)[0] == 200
         left, right = (shutil.copytree(source, scratch / name) for name in ("python", "rust"))
-        for data in (left, right):
-            with sqlite3.connect(data / "fit.db") as db:
-                now = time.time()
-                digest = hashlib.sha256(b"fixture-session").hexdigest()
-                db.execute("INSERT INTO sessioni (impronta, utente, tipo, creata, vista) VALUES (?, 1, 'cookie', ?, ?)", (digest, now, now))
         checks = [
             ("GET", "/api/health"), ("HEAD", "/api/health"), ("GET", "/"),
             ("GET", "/accedi"), ("GET", "/api/state"),
@@ -149,15 +143,11 @@ def main():
             for name, results in (("Python", expected), ("Rust", actual)):
                 status, headers, body = results[i]
                 print(f"  {name}: {status} {headers} {body[:300]!r}")
-        # The Rust login page no longer accepts local credentials. Other HTTP and database behavior stays identical.
-        assert differences == {2, 3}, differences
-        for i in differences:
-            assert b'name="utente"' in expected[i][2]
-            assert b'name="utente"' not in actual[i][2]
+        assert not differences
         assert snapshot(left) == snapshot(right), "SQLite schema or state differs"
         with server(python, public, right) as port:
             assert request(port, "GET", "/api/state", headers=ADMIN)[2] == actual[25][2]
-        print(f"{len(actual)} HTTP comparisons, two expected login-page differences; SQLite round trip OK")
+        print(f"{len(actual)} HTTP comparisons, zero differences; SQLite round trip OK")
 
 
 if __name__ == "__main__":

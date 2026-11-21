@@ -2,6 +2,7 @@
 //! API. Everything here is synchronous and runs on the blocking pool, never on the async workers.
 
 use crate::accesso;
+use crate::conf::conf;
 use crate::db::{Dati, Utente};
 use crate::errore::{Esito, Problema};
 use crate::ponte::Ponte;
@@ -90,10 +91,12 @@ impl Risposta {
     }
 }
 
-/// How the person got in: secret path or a database session cookie.
+/// How the person got in: locale (no login configured), porta (secret path), vecchio (old shared cookie), cookie
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Via {
+    Locale,
     Porta,
+    Vecchio,
     Cookie,
 }
 
@@ -132,19 +135,28 @@ impl Ctx<'_> {
     /// Renews the cookies of whoever is in, so the expiry restarts at every opening of the app.
     pub fn biscotti(&self) -> Vec<String> {
         match (self.via, &self.io) {
-            (Some(Via::Cookie), Some(u)) => accesso::biscotti(&self.gettone, &u.nome),
+            (Some(Via::Cookie | Via::Vecchio), Some(u)) => {
+                accesso::biscotti(&self.gettone, &u.nome)
+            }
             _ => vec![],
         }
     }
 
     fn riconosci(&mut self) -> Esito<()> {
         let capo = |d: &Dati| d.utente(accesso::CAPO);
-        if self.req.intestazione("X-Fit-Accesso") == Some("ok") {
+        if !accesso::acceso() {
+            (self.io, self.via) = (capo(&self.app.dati)?, Some(Via::Locale));
+        } else if self.req.intestazione("X-Fit-Accesso") == Some("ok") {
             (self.io, self.via) = (capo(&self.app.dati)?, Some(Via::Porta));
         } else {
             let valore = accesso::leggi_cookie(self.req.intestazione("Cookie"), "fitk");
-            self.io = self.app.dati.sessione(&valore, "cookie")?;
-            self.via = Some(Via::Cookie);
+            let vecchio = &conf().cookie_vecchio;
+            if !valore.is_empty() && !vecchio.is_empty() && accesso::uguali(&valore, vecchio) {
+                (self.io, self.via) = (capo(&self.app.dati)?, Some(Via::Vecchio));
+            } else {
+                self.io = self.app.dati.sessione(&valore, "cookie")?;
+                self.via = Some(Via::Cookie);
+            }
             self.gettone = valore;
         }
         Ok(())
@@ -158,7 +170,7 @@ static NESSUNO: Utente = Utente {
     utente: None,
 };
 
-/// Login navigation and the existing Home-key exchange. Credential forms are refused.
+/// The login page and its form. It also answers whoever is already in and wants to switch account.
 fn accedi(c: &mut Ctx) -> Esito<Risposta> {
     c.riconosci()?;
     let apk = crate::oidc::apk(&c.req.query);
@@ -166,10 +178,15 @@ fn accedi(c: &mut Ctx) -> Esito<Risposta> {
         if c.io.is_some() {
             return Ok(Risposta::testo(303, b"").con("Location", "./"));
         }
-        if let Some(r) = crate::oidc::prova_muta(c) {
-            return Ok(r);
-        }
         return Ok(Risposta::html(200, accesso::pagina_con("", apk.as_deref())));
+    }
+    // a form posted from another site never signs anyone in (login CSRF); scripts with a Home key send no Origin
+    if let Some(origine) = c.req.intestazione("Origin")
+        && !origine.is_empty()
+        && origine != "null"
+        && c.req.intestazione("Host").is_none_or(|h| origine.trim_end_matches('/') != format!("https://{h}"))
+    {
+        return Ok(Risposta::testo(403, b"Origine non ammessa"));
     }
     let modulo = match &c.req.grezzo {
         Some(g) if !g.is_empty() && g.len() <= 2000 => py::parse_qs(&String::from_utf8_lossy(g)),
@@ -195,17 +212,58 @@ fn accedi(c: &mut Ctx) -> Esito<Risposta> {
         }
         Risposta::html(codice, accesso::pagina_con(testo, apk.as_deref()))
     };
-    if k.is_empty()
-        || modulo.contains_key("utente")
-        || modulo.contains_key("password")
-        || modulo.contains_key("codice")
-    {
-        return Ok(rispondi(403, "Accesso non disponibile.", vec![]));
+    if !accesso::acceso() {
+        return Ok(rispondi(200, "", vec![]));
+    }
+    if accesso::troppi_sbagli() {
+        return Ok(rispondi(
+            429,
+            "Troppi tentativi sbagliati: riprova tra un'ora.",
+            vec![],
+        ));
+    }
+    if k.is_empty() && crate::oidc::attivo() && !conf().login_codice {
+        let password = {
+            let p = campo("password");
+            if p.is_empty() { campo("codice") } else { p }
+        };
+        let esito = crate::oidc::modulo(c, &campo("utente"), &password)?;
+        return Ok(match esito {
+            crate::oidc::Modulo::Dentro(b) => rispondi(200, "", b),
+            crate::oidc::Modulo::Rifiuto(codice, testo) => rispondi(codice, &testo, vec![]),
+        });
     }
     let d = &c.app.dati;
-    let utente = d.sessione(&k, "casa")?;
+    if k.is_empty() && !conf().login_codice {
+        return Ok(rispondi(403, "Accesso non disponibile.", vec![]));
+    }
+    let password = {
+        let p = campo("password");
+        if p.is_empty() { campo("codice") } else { p }
+    };
+    let utente = if !k.is_empty() {
+        d.sessione(&k, "casa")?
+    } else {
+        d.entra(&campo("utente"), &password)?
+    };
     let Some(utente) = utente else {
-        return Ok(rispondi(401, "Chiave non valida.", vec![]));
+        if k.is_empty() {
+            // an expired Home icon key is not an attempt to guess the password
+            accesso::segna_sbaglio();
+            // the plan is ready but the account is not yet: whoever tries must know they did not mistype
+            if let Some(u) = accesso::nome_utente(&campo("utente"))
+                && d.attese()?
+                    .iter()
+                    .any(|a| get(a, "utente").as_str() == Some(u.as_str()))
+            {
+                let testo = format!(
+                    "Questo account non è ancora attivo: lo deve attivare {} dall'app (Piano, poi Persone).",
+                    conf().nome_capo
+                );
+                return Ok(rispondi(401, &testo, vec![]));
+            }
+        }
+        return Ok(rispondi(401, "Nome utente o password sbagliati.", vec![]));
     };
     let da = (!k.is_empty()).then(|| accesso::impronta(&k));
     let gettone = d.apri_sessione(utente.id, "cookie", None, da)?;
@@ -296,9 +354,6 @@ fn fuori(c: &Ctx) -> Esito<Risposta> {
     if (c.req.metodo == "GET" || c.req.metodo == "HEAD") && pubblico {
         return statico(c);
     }
-    if let Some(r) = crate::oidc::prova_muta(c) {
-        return Ok(r);
-    }
     // 401, not 200: so the service worker does not take this page for the app and store it
     Ok(Risposta::html(
         401,
@@ -331,7 +386,9 @@ pub fn statico(c: &Ctx) -> Esito<Risposta> {
             .replace("'__FILE__'", &crate::pyjson::ascii(&json!(file)));
         corpo = testo.into_bytes();
         etag = format!("\"{versione}\"");
-    } else if rel == "manifest.webmanifest" && matches!(c.via, Some(Via::Cookie)) && c.io.is_some()
+    } else if rel == "manifest.webmanifest"
+        && matches!(c.via, Some(Via::Cookie | Via::Vecchio))
+        && c.io.is_some()
     {
         // the iPhone Home icon does not see Safari's cookies: it starts with a key in the address (after the #)
         let mut manifest: Value =
