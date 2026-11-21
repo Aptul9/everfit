@@ -184,7 +184,9 @@ fn accedi(c: &mut Ctx) -> Esito<Risposta> {
     if let Some(origine) = c.req.intestazione("Origin")
         && !origine.is_empty()
         && origine != "null"
-        && c.req.intestazione("Host").is_none_or(|h| origine.trim_end_matches('/') != format!("https://{h}"))
+        && c.req
+            .intestazione("Host")
+            .is_none_or(|h| origine.trim_end_matches('/') != format!("https://{h}"))
     {
         return Ok(Risposta::testo(403, b"Origine non ammessa"));
     }
