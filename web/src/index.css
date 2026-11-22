@@ -1,0 +1,108 @@
+@import "@fontsource-variable/inter";
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter Variable", "SF Pro Display", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --color-bg: #0a0c0f;
+  --color-s1: #12161b;
+  --color-s2: #1a1f26;
+  --color-s3: #262d36;
+  --color-ln: #232931;
+  --color-tx: #f2f4f7;
+  --color-tx2: #c9d1db;
+  --color-mu: #8d97a5;
+  --color-ac: #b8f35a;
+  --color-ac2: #d4fa7c;
+  --color-mi: #7be3b0;
+  --color-p: #ff7a6b;
+  --color-c: #f7c052;
+  --color-f: #a08fff;
+  --color-ok: #4ade80;
+  --color-wa: #f7c052;
+  --color-er: #ff6b6b;
+  --animate-rise: rise 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-sheet: sheet 0.32s cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-fade: fade 0.25s ease-out;
+
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes sheet {
+    from { opacity: 0; transform: translateY(48px); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+}
+
+html,
+body {
+  background: var(--color-bg);
+  color: var(--color-tx);
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+body {
+  font-feature-settings: "tnum" 1, "cv11" 1;
+  min-height: 100dvh;
+}
+
+* {
+  scrollbar-width: none;
+}
+*::-webkit-scrollbar {
+  display: none;
+}
+
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 99px;
+  background: var(--color-s2);
+  outline: none;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+}
+input[type="range"]::-moz-range-thumb {
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 50%;
+  background: #fff;
+  cursor: pointer;
+}
+
+.pt-safe {
+  padding-top: max(env(safe-area-inset-top), 12px);
+}
+.pb-safe {
+  padding-bottom: max(env(safe-area-inset-bottom), 10px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

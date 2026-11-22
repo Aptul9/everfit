@@ -1,6 +1,9 @@
 {
-	http_port 8080
-	https_port 8443
+	# Host network (the app needs Meridian on the host loopback): bind loopback only, sslh owns 443.
+	default_bind 127.0.0.1
+	http_port 4458
+	https_port {$HTTPS_PORT:4450}
+	auto_https disable_redirects
 	skip_install_trust
 	servers {
 		protocols h1 h2
@@ -20,46 +23,29 @@
 	tls internal
 }
 
-(app) {
-	reverse_proxy app:8080 {
-		header_up X-Real-IP {remote_host}
-	}
-}
-
-# Container healthcheck only; the port is not published.
-http://127.0.0.1:8079 {
+# Container healthcheck only.
+http://127.0.0.1:4459 {
 	respond "ok" 200
 }
 
 {$DOMAIN:fit.everbright.it} {
 	import tls_{$FIT_TLS:acme}
+	encode zstd gzip
 	header {
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options nosniff
 		Referrer-Policy same-origin
 		X-Robots-Tag "noindex, nofollow, noarchive"
-		Permissions-Policy "camera=(self), screen-wake-lock=(self), clipboard-write=(self), fullscreen=(self \"https://www.youtube-nocookie.com\"), picture-in-picture=(self \"https://www.youtube-nocookie.com\"), encrypted-media=(self \"https://www.youtube-nocookie.com\"), accelerometer=(self \"https://www.youtube-nocookie.com\"), gyroscope=(self \"https://www.youtube-nocookie.com\"), microphone=(), geolocation=(), payment=(), usb=(), serial=(), hid=(), bluetooth=(), midi=()"
-		# Inline script hashes come from ci/csp.py; ci/test_deploy.py fails when they drift from the served pages.
-		Content-Security-Policy "default-src 'self'; script-src 'self' 'sha256-2CI1ciCRKUcigzhBq6DGVLldo7Ass2xaTkq33KXTojE=' 'sha256-AmeXnSiKSe3RwXDx7z8VbqRnhmNy/Nku0wPPTNZaUPY=' 'sha256-PeiBqqGyTHm+Gx7UrkNUqNnOHxoy+5Y19pVdBjn2v80=' 'sha256-f6GVSrZB+RP+GXMIVCrpYInarx5xGtoMLVIA5FYXIF8='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' https://servizi.everbright.it; frame-src https://www.youtube-nocookie.com; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), hid=(), bluetooth=(), midi=()"
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://servizi.everbright.it; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 		-Server
 	}
-	# The application refuses bodies over 2 MiB.
 	request_body {
-		max_size 3MB
+		max_size 2MB
 	}
-	handle /.well-known/assetlinks.json {
-		root * /srv/public
-		header Content-Type application/json
-		header Cache-Control no-cache
-		file_server
-	}
-	# Secret path of the PC app and of the scale bridge: the only route where the admin header is set.
-	handle_path /{$FIT_PERCORSO}/* {
-		request_header X-Fit-Accesso ok
-		import app
-	}
-	handle {
-		request_header -X-Fit-Accesso
-		import app
+	reverse_proxy 127.0.0.1:{$APP_PORT:8097} {
+		header_up X-Real-IP {remote_host}
+		# the coach streams its answer
+		flush_interval -1
 	}
 }

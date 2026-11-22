@@ -4,10 +4,7 @@
 # checked before it counts.
 set -euo pipefail
 umask 077
-DATA=/opt/everfit/data
-if grep -qx 'FIT_DATA_DIR=/opt/everfit/personal-data' /opt/everfit/.env; then
-  DATA=/opt/everfit/personal-data
-fi
+DATA=/opt/everfit/coach
 # shellcheck source=ci/sqlite.sh
 source "$(dirname "${BASH_SOURCE[0]}")/sqlite.sh"
 OUT=/var/backups/vm-dati
@@ -17,15 +14,15 @@ WORK=$(mktemp -d /var/tmp/everfit-backup.XXXXXX)
 trap 'rm -rf "$WORK"' EXIT
 install -d -m 700 "$OUT" "$WORK/snapshot" "$WORK/restore"
 
-test -s "$DATA/fit.db"
-sqlite_snapshot "$DATA/fit.db" "$WORK/snapshot/fit.db"
-tar -C "$DATA" --exclude='./fit.db' --exclude='./fit.db-wal' --exclude='./fit.db-shm' -cf "$WORK/snapshot/files.tar" .
+test -s "$DATA/nutri.db"
+sqlite_snapshot "$DATA/nutri.db" "$WORK/snapshot/nutri.db"
+tar -C "$DATA" --exclude='./nutri.db' --exclude='./nutri.db-wal' --exclude='./nutri.db-shm' -cf "$WORK/snapshot/files.tar" .
 
 archive="$OUT/everfit-$STAMP.tar.zst"
-tar --zstd -C "$WORK/snapshot" -cf "$archive.part" fit.db files.tar
+tar --zstd -C "$WORK/snapshot" -cf "$archive.part" nutri.db files.tar
 
 tar --zstd -C "$WORK/restore" -xf "$archive.part"
-sqlite_verify "$WORK/restore/fit.db"
+sqlite_verify "$WORK/restore/nutri.db"
 mkdir "$WORK/restore/data"
 tar -xf "$WORK/restore/files.tar" -C "$WORK/restore/data"
 

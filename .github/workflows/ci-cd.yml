@@ -1,8 +1,10 @@
 name: CI/CD
 
-# Every pull request and push: tests, then the two images are built once, run with the production restrictions and
-# smoke-tested. On main, only a commit that came from a merged pull request is deployed: the tested images travel to
-# the VM with docker save/load and are started by tag after their config digests match. Nothing is built on the VM.
+# Every pull request and push: tests, then the two images are built once, run with the production restrictions on
+# demo data and smoke-tested. On main, only a commit that came from a merged pull request is deployed: the tested
+# images travel to the VM with docker save/load and are started by tag after their config digests match. Nothing is
+# built on the VM. The book corpus and the owner's story never enter this public repository, its images or its
+# artifacts: the deploy job copies them from the private repository straight to the VM.
 on:
   push:
     branches: [main]
@@ -23,88 +25,63 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.12"
+          python-version: "3.14"
       - name: Deployment tests
         run: |
           python -m unittest discover -s ci -p 'test_*.py'
-          for script in ci/*.sh; do bash -n "$script"; done
           shellcheck -x --severity=warning ci/*.sh
-      - name: Python reference suites
-        run: python ci/prove.py
-      - name: Rust checks
+      - name: Backend
+        working-directory: backend
         run: |
-          rustup show active-toolchain
-          cargo fmt --all --check
-          cargo clippy --locked --all-targets -- -D warnings
-          cargo test --locked
-      - uses: EmbarkStudios/cargo-deny-action@07ba22ef723b206cf9d2995acd96f91dc0dc068a # v2
+          python -m pip install --quiet uv
+          uv sync --frozen
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run pytest -q
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          command: check
-          command-arguments: advisories licenses bans sources
-      - name: JavaScript syntax
+          node-version: 24
+      - name: Web app
+        working-directory: web
         run: |
-          scratch=$(mktemp -d)
-          git ls-files 'app/public/*.js' | while read -r file; do
-            cp "$file" "$scratch/check.mjs"
-            node --check "$scratch/check.mjs" || { echo "Syntax error in $file" >&2; exit 1; }
-          done
-      - name: Isolated test credentials
-        run: |
-          python - <<'PY'
-          import os, secrets, string
-          values = {
-              'FIT_CODICE': ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(20)),
-              'FIT_PERCORSO': secrets.token_urlsafe(32),
-          }
-          with open(os.environ['GITHUB_ENV'], 'a') as output:
-              for name, value in values.items():
-                  print('::add-mask::' + value)
-                  output.write(name + '=' + value + '\n')
-          PY
+          npm ci --no-audit --no-fund
+          npm run build
+          test -s dist/.well-known/assetlinks.json
       - name: Build images
         run: |
           docker build --pull -t "everfit:$RELEASE" .
           docker build --pull -f Dockerfile.caddy -t "everfit-web:$RELEASE" .
-          docker run --rm -e FIT_PERCORSO -e FIT_TLS=internal "everfit-web:$RELEASE" caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
-      - name: Parity and benchmark with the packaged Rust binary
-        run: |
-          work=$(mktemp -d)
-          container=$(docker create "everfit:$RELEASE")
-          trap 'docker rm "$container" >/dev/null; rm -rf "$work"' EXIT
-          docker cp "$container:/fit" "$work/fit"
-          FIT_SERVER="$work/fit" python ci/prove.py
-          python app/tools/prove/prova_differenziale.py "$work/fit"
-          python ci/prova_everid.py "$work/fit"
-          python app/tools/prove/misura_server.py "$work/fit" | tee -a "$GITHUB_STEP_SUMMARY"
-      - name: Run the images with the compose restrictions
+          docker run --rm -e FIT_TLS=internal "everfit-web:$RELEASE" caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+      - name: Run the images with the compose restrictions (demo data, sign-in off)
         env:
           FIT_DOMINIO: fit.test
           FIT_TLS: internal
-          HTTPS_PORT: "4450"
+          NUTRI_SOURCE: demo
+          NUTRI_AUTH: "off"
         run: |
           echo '127.0.0.1 fit.test' | sudo tee -a /etc/hosts
-          export FIT_DATA_DIR=$(mktemp -d)
+          export FIT_DATA_DIR=$(mktemp -d) FIT_PRIVATE_DIR=$(mktemp -d)
           sudo chown 10001:10001 "$FIT_DATA_DIR"
           sudo chmod 700 "$FIT_DATA_DIR"
           docker compose config --quiet
-          trap 'docker compose logs --tail 40; docker compose down -v' EXIT
-          docker compose up -d --wait --wait-timeout 120
-          python ci/smoke.py --url https://fit.test:4450 --insecure
+          trap 'docker compose logs --tail 60; docker compose down -v' EXIT
+          docker compose up -d --wait --wait-timeout 180
+          python ci/smoke.py --url https://fit.test:4450 --insecure --demo
           for service in app web; do
             container=$(docker compose ps -q "$service")
             docker inspect "$container" --format '{{.HostConfig.ReadonlyRootfs}} {{.HostConfig.CapDrop}} {{.HostConfig.SecurityOpt}} {{.Config.User}} {{.State.Health.Status}}' | tee inspect.txt
             grep -qx 'true \[ALL\] \[no-new-privileges:true\] 10001:10001 healthy' inspect.txt
           done
-          mounts=$(docker inspect "$(docker compose ps -q app)" --format '{{range .Mounts}}{{.Destination}} {{end}}')
-          echo "App mounts: $mounts"
-          test "$mounts" = '/data '
-          sudo test -s "$FIT_DATA_DIR/fit.db"
+          # nothing may listen on a public interface: host network, loopback only
+          if sudo ss -ltnH | awk '{print $4}' | grep -E '(^|:)(4450|4458|4459|8097)$' | grep -v '^127\.0\.0\.1:'; then
+            echo 'A listener is not bound to loopback' >&2
+            exit 1
+          fi
+          sudo test -s "$FIT_DATA_DIR/nutri.db"
           if docker compose logs app web 2>&1 | grep -E 'Traceback|"level":"error"'; then
             echo 'Containers emitted runtime errors' >&2
             exit 1
           fi
-      - name: Rehearse the production deploy, upgrade and rollback
-        run: bash ci/rehearse.sh
       - name: Package the tested images
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: |
@@ -124,7 +101,6 @@ jobs:
 
   guard:
     name: Came from a pull request
-    # GitHub Free returns 403 for branch protection on private repositories: this job stands in for it.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
@@ -161,6 +137,27 @@ jobs:
         with:
           name: release
           path: bundle
+      - name: Private data (book corpus, owner's story)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ vars.PRIVATE_DATA_REPO }}
+          ssh-key: ${{ secrets.PRIVATE_DATA_KEY }}
+          path: private-src
+          persist-credentials: false
+          sparse-checkout: |
+            apps/nutritionist/corpus
+            apps/nutritionist/data/story.md
+          sparse-checkout-cone-mode: false
+      - name: Pack the private data
+        run: |
+          src=private-src/apps/nutritionist
+          test -s "$src/data/story.md" && test -s "$src/corpus/INDEX.md"
+          umask 077
+          mkdir -p private/corpus
+          cp "$src/data/story.md" private/
+          cp -r "$src/corpus/INDEX.md" "$src/corpus/chapters" "$src/corpus/method" "$src/corpus/tables" "$src/corpus/external" private/corpus/
+          tar -czf bundle/private.tar.gz -C private .
+          rm -rf private private-src
       - name: SSH configuration
         env:
           SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
@@ -172,33 +169,18 @@ jobs:
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
       - name: Copy images, release and runtime inputs
         env:
-          FIT_CODICE: ${{ secrets.FIT_CODICE }}
-          FIT_PERCORSO: ${{ secrets.FIT_PERCORSO }}
-          FIT_PASSWORD: ${{ secrets.FIT_PASSWORD }}
-          FIT_UTENTE: ${{ vars.FIT_UTENTE }}
           OIDC_ISSUER: ${{ vars.OIDC_ISSUER }}
           OIDC_CLIENT_ID: ${{ secrets.OIDC_CLIENT_ID }}
           OIDC_CLIENT_SECRET: ${{ secrets.OIDC_CLIENT_SECRET }}
           FIT_OWNER_EMAIL: ${{ vars.FIT_OWNER_EMAIL }}
-          FIT_LOGIN_CODICE: ${{ vars.FIT_LOGIN_CODICE }}
+          NUTRI_AGENT_MODEL: ${{ vars.NUTRI_AGENT_MODEL }}
         run: |
-          test -n "$FIT_CODICE" && test -n "$FIT_PERCORSO"
           umask 077
-          printf 'FIT_CODICE=%s\nFIT_PERCORSO=%s\n' "$FIT_CODICE" "$FIT_PERCORSO" > bundle/environment.new
+          python3 ci/env.py bundle/environment.new
           ssh "$TARGET" 'install -d -m 700 /opt/everfit'
-          python3 ci/owner_env.py bundle/environment.new
-          python3 ci/everid_env.py bundle/environment.new
-          scp bundle/release.tar.gz bundle/images.tar.gz bundle/image-ids bundle/environment.new "$TARGET:/opt/everfit/"
+          scp bundle/release.tar.gz bundle/images.tar.gz bundle/image-ids bundle/environment.new bundle/private.tar.gz "$TARGET:/opt/everfit/"
+          rm -f bundle/environment.new bundle/private.tar.gz
       - name: Deploy from versioned script
         run: ssh "$TARGET" "set -e; tar xzf /opt/everfit/release.tar.gz -C /opt/everfit ci/deploy.sh; bash /opt/everfit/ci/deploy.sh '$GITHUB_SHA'"
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          python-version: "3.12"
       - name: Public application checks
-        env:
-          FIT_CODICE: ${{ secrets.FIT_CODICE }}
-          FIT_PERCORSO: ${{ secrets.FIT_PERCORSO }}
-          FIT_PASSWORD: ${{ secrets.FIT_PASSWORD }}
-          FIT_UTENTE: ${{ vars.FIT_UTENTE }}
-          FIT_SMOKE_LOGIN: ${{ vars.FIT_LOGIN_CODICE == '0' && '0' || '1' }}
-        run: python ci/smoke.py --url https://fit.everbright.it
+        run: python3 ci/smoke.py --url https://fit.everbright.it
