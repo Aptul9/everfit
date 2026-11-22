@@ -13,9 +13,7 @@ export default function Onboarding() {
   return (
     <div className="pt-safe animate-rise px-4 pb-10">
       <div className="mt-6 mb-5">
-        <div className="mb-3 grid size-12 place-items-center rounded-[16px] bg-gradient-to-br from-ac2 to-mi">
-          <img src="/icon-192.png" alt="" className="size-12 rounded-[16px]" />
-        </div>
+        <img src="/logo.svg" alt="" className="mb-3 size-12 rounded-[15px]" />
         <h1 className="text-[26px] font-bold tracking-[-0.02em]">{step === "cronometer" ? "Collega Cronometer" : step === "profile" ? "Due dati per partire" : "Scegli la fase"}</h1>
         <p className="mt-1 text-[13px] text-tx2">
           {step === "cronometer"

@@ -53,7 +53,7 @@ export default function Today() {
         </div>
         <div className="flex items-center gap-2">
           {t.phase && <Chip tone="ac">{t.phase.name}{t.targets?.kind === "refeed" ? " · ricarica" : ""}</Chip>}
-          <button onClick={() => nav("/impostazioni")} className="grid size-9 place-items-center rounded-xl text-mu active:bg-s2" aria-label="Impostazioni">
+          <button onClick={() => nav("/impostazioni")} className="grid size-9 place-items-center rounded-xl text-mu active:bg-s2 lg:hidden" aria-label="Impostazioni">
             <Settings2 className="size-5" />
           </button>
         </div>
@@ -99,127 +99,144 @@ export default function Today() {
         </div>
       ))}
 
-      {target && (
-        <Card className="mb-3">
-          <div className="flex items-center gap-4">
-            <Ring value={consumed.kcal} max={target.kcal}>
-              <b className="text-[30px] font-bold tracking-[-0.03em]">{n0(Math.abs(target.kcal - consumed.kcal))}</b>
-              <span className="text-[11px] text-mu">{consumed.kcal > target.kcal ? "kcal sopra" : "kcal rimaste"}</span>
-            </Ring>
-            <div className="flex flex-1 flex-col gap-2 text-[12px]">
-              <Row label="Mangiato" value={n0(consumed.kcal)} />
-              <Row label="Da piano" value={n0(planned.kcal)} muted />
-              <Row label="Target" value={n0(target.kcal)} />
-              <Row label="Metabolismo" value={`~${n0(t.expenditure.kcal)}`} />
-            </div>
+      <div className="flex flex-col gap-2.5 lg:grid lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:items-start lg:gap-5">
+        <div className="contents lg:sticky lg:top-8 lg:flex lg:flex-col lg:gap-3">
+          <div className="order-1 empty:hidden lg:order-none">
+          {target && (
+            <Card>
+              <div className="flex items-center gap-4">
+                <Ring value={consumed.kcal} max={target.kcal}>
+                  <b className="text-[30px] font-bold tracking-[-0.03em]">{n0(Math.abs(target.kcal - consumed.kcal))}</b>
+                  <span className="text-[11px] text-mu">{consumed.kcal > target.kcal ? "kcal sopra" : "kcal rimaste"}</span>
+                </Ring>
+                <div className="flex flex-1 flex-col gap-2 text-[12px]">
+                  <Row label="Mangiato" value={n0(consumed.kcal)} />
+                  <Row label="Da piano" value={n0(planned.kcal)} muted />
+                  <Row label="Target" value={n0(target.kcal)} />
+                  <Row label="Metabolismo" value={`~${n0(t.expenditure.kcal)}`} />
+                </div>
+              </div>
+              <div className="mt-4 grid gap-[11px]">
+                {(["protein", "carbs", "fat"] as const).map((k) => (
+                  <div key={k}>
+                    <div className="mb-1.5 flex justify-between text-[12px]">
+                      <span>
+                        <Dot color={MACRO_COLORS[k]} />
+                        {k === "protein" ? "Proteine" : k === "carbs" ? "Carboidrati" : "Grassi"}
+                      </span>
+                      <span>
+                        <b>{n0(consumed[k])}</b>
+                        <span className="text-mu"> / {n0(target[k])} g</span>
+                      </span>
+                    </div>
+                    <Bar
+                      parts={[
+                        { value: (consumed[k] / (target[k] || 1)) * 100, color: MACRO_COLORS[k] },
+                        { value: (planned[k] / (target[k] || 1)) * 100, color: MACRO_COLORS[k] + "3a" },
+                      ]}
+                    />
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+
           </div>
-          <div className="mt-4 grid gap-[11px]">
-            {(["protein", "carbs", "fat"] as const).map((k) => (
-              <div key={k}>
-                <div className="mb-1.5 flex justify-between text-[12px]">
+          <div className="order-4 empty:hidden lg:order-none">
+          {t.suggestions.length > 0 && t.remaining && (
+            <Card>
+              <div className="flex items-center justify-between">
+                <b className="text-[14px]">Ti mancano {n0(t.remaining.protein)} g di proteine</b>
+              </div>
+              <div className="mb-1 mt-0.5 text-[11px] text-mu">Dai tuoi alimenti, dentro le {n0(t.remaining.kcal)} kcal rimaste</div>
+              {t.suggestions.map((s, i) => (
+                <SuggestionRow key={i} s={s} day={t.day} />
+              ))}
+            </Card>
+          )}
+
+          </div>
+          <div className="order-6 empty:hidden lg:order-none">
+          <Card onClick={() => nav("/progressi")}>
+            <div className="mb-2 flex items-center justify-between">
+              <b className="text-[14px]">Peso</b>
+              <span className="text-[11px] text-mu">trend, non la bilancia</span>
+            </div>
+            <div className="flex items-end justify-between">
+              <div>
+                <div className="text-[34px] font-bold leading-none tracking-[-0.03em]">
+                  {n1(t.weight.trend)}
+                  <span className="ml-1 text-[14px] font-medium tracking-normal text-mu">kg</span>
+                </div>
+                <div className="mt-2 text-[12px]">
+                  <RateText r={t.weight.rate_kg_week} band={t.phase?.band_kg_week} />
+                </div>
+              </div>
+              <Spark values={t.weight.spark} />
+            </div>
+          </Card>
+          </div>
+        </div>
+        <div className="contents lg:flex lg:flex-col lg:gap-3">
+          <div className="order-2 empty:hidden lg:order-none">
+          {t.plan ? (
+            <div className="flex flex-col gap-2.5">
+              {t.plan.meals.map((m) => (
+                <MealCard
+                  key={m.slot}
+                  meal={m}
+                  busy={act.isPending && act.variables?.slot === m.slot}
+                  onConfirm={() => act.mutate({ slot: m.slot, action: "confirm" })}
+                  onSkip={() => act.mutate({ slot: m.slot, action: "skip" })}
+                  onUndo={() => act.mutate({ slot: m.slot, action: "undo" })}
+                  onAdjust={() => setAdjust(m)}
+                />
+              ))}
+              {!t.plan.report.within_tolerance && t.plan.report.notes.length > 0 && (
+                <div className="px-1 text-[11.5px] text-mu">{t.plan.report.notes.join(" ")}</div>
+              )}
+            </div>
+          ) : (
+            <Card>
+              <b className="text-[14px]">Nessun piano per oggi</b>
+              <p className="mt-1 text-[12.5px] text-tx2">
+                Il piano si costruisce dai pasti che hai già nel diario di Cronometer. Quando ce ne sono, la giornata arriva già compilata.
+              </p>
+              <Button small className="mt-3" onClick={() => nav(`/piano/modifica/${t.day}`)}>
+                Crea il piano a mano
+              </Button>
+            </Card>
+          )}
+
+          </div>
+          <div className="order-3 empty:hidden lg:order-none">
+          {t.extra.length > 0 && (
+            <Card>
+              <div className="mb-1 text-[14px] font-bold">Altro mangiato</div>
+              {t.extra.map((e, i) => (
+                <div key={i} className="flex justify-between border-t border-ln py-2 text-[12.5px] first:border-t-0">
                   <span>
-                    <Dot color={MACRO_COLORS[k]} />
-                    {k === "protein" ? "Proteine" : k === "carbs" ? "Carboidrati" : "Grassi"}
+                    {e.name} <span className="text-mu">· {SLOT_LABEL[e.slot] ?? e.slot}</span>
                   </span>
-                  <span>
-                    <b>{n0(consumed[k])}</b>
-                    <span className="text-mu"> / {n0(target[k])} g</span>
+                  <span className="text-mu">
+                    {n0(e.grams)} g{e.pending ? " · in invio" : ""}
                   </span>
                 </div>
-                <Bar
-                  parts={[
-                    { value: (consumed[k] / (target[k] || 1)) * 100, color: MACRO_COLORS[k] },
-                    { value: (planned[k] / (target[k] || 1)) * 100, color: MACRO_COLORS[k] + "3a" },
-                  ]}
-                />
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
-
-      {t.plan ? (
-        <div className="flex flex-col gap-2.5">
-          {t.plan.meals.map((m) => (
-            <MealCard
-              key={m.slot}
-              meal={m}
-              busy={act.isPending && act.variables?.slot === m.slot}
-              onConfirm={() => act.mutate({ slot: m.slot, action: "confirm" })}
-              onSkip={() => act.mutate({ slot: m.slot, action: "skip" })}
-              onUndo={() => act.mutate({ slot: m.slot, action: "undo" })}
-              onAdjust={() => setAdjust(m)}
-            />
-          ))}
-          {!t.plan.report.within_tolerance && t.plan.report.notes.length > 0 && (
-            <div className="px-1 text-[11.5px] text-mu">{t.plan.report.notes.join(" ")}</div>
+              ))}
+            </Card>
           )}
-        </div>
-      ) : (
-        <Card>
-          <b className="text-[14px]">Nessun piano per oggi</b>
-          <p className="mt-1 text-[12.5px] text-tx2">
-            Il piano si costruisce dai pasti che hai già nel diario di Cronometer. Quando ce ne sono, la giornata arriva già compilata.
-          </p>
-          <Button small className="mt-3" onClick={() => nav(`/piano/modifica/${t.day}`)}>
-            Crea il piano a mano
-          </Button>
-        </Card>
-      )}
 
-      {t.extra.length > 0 && (
-        <Card className="mt-2.5">
-          <div className="mb-1 text-[14px] font-bold">Altro mangiato</div>
-          {t.extra.map((e, i) => (
-            <div key={i} className="flex justify-between border-t border-ln py-2 text-[12.5px] first:border-t-0">
-              <span>
-                {e.name} <span className="text-mu">· {SLOT_LABEL[e.slot] ?? e.slot}</span>
-              </span>
-              <span className="text-mu">
-                {n0(e.grams)} g{e.pending ? " · in invio" : ""}
-              </span>
-            </div>
-          ))}
-        </Card>
-      )}
-
-      {t.suggestions.length > 0 && t.remaining && (
-        <Card className="mt-2.5">
-          <div className="flex items-center justify-between">
-            <b className="text-[14px]">Ti mancano {n0(t.remaining.protein)} g di proteine</b>
           </div>
-          <div className="mb-1 mt-0.5 text-[11px] text-mu">Dai tuoi alimenti, dentro le {n0(t.remaining.kcal)} kcal rimaste</div>
-          {t.suggestions.map((s, i) => (
-            <SuggestionRow key={i} s={s} day={t.day} />
-          ))}
-        </Card>
-      )}
-
-      <button
-        onClick={() => setExtraOpen(true)}
-        className="mt-2.5 flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-[#333b45] p-3 text-[12px] font-semibold text-mu active:bg-s1"
-      >
-        <Plus className="size-4" /> Ho mangiato altro
-      </button>
-
-      <Card className="mt-2.5" onClick={() => nav("/progressi")}>
-        <div className="mb-2 flex items-center justify-between">
-          <b className="text-[14px]">Peso</b>
-          <span className="text-[11px] text-mu">trend, non la bilancia</span>
-        </div>
-        <div className="flex items-end justify-between">
-          <div>
-            <div className="text-[34px] font-bold leading-none tracking-[-0.03em]">
-              {n1(t.weight.trend)}
-              <span className="ml-1 text-[14px] font-medium tracking-normal text-mu">kg</span>
-            </div>
-            <div className="mt-2 text-[12px]">
-              <RateText r={t.weight.rate_kg_week} band={t.phase?.band_kg_week} />
-            </div>
+          <div className="order-5 empty:hidden lg:order-none">
+          <button
+            onClick={() => setExtraOpen(true)}
+            className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-[#333b45] p-3 text-[12px] font-semibold text-mu active:bg-s1"
+          >
+            <Plus className="size-4" /> Ho mangiato altro
+          </button>
           </div>
-          <Spark values={t.weight.spark} />
         </div>
-      </Card>
+      </div>
 
       {adjust && <AdjustSheet meal={adjust} onClose={() => setAdjust(null)} onConfirm={(items) => act.mutate({ slot: adjust.slot, action: "confirm", items }, { onSuccess: () => setAdjust(null) })} busy={act.isPending} />}
       <ExtraSheet open={extraOpen} day={t.day} onClose={() => setExtraOpen(false)} />

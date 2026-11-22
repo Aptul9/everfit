@@ -70,6 +70,7 @@ export default function Settings() {
   return (
     <div className="animate-rise pb-16">
       <Header title="Impostazioni" onBack={() => nav(-1)} />
+      <div className="lg:columns-2 lg:gap-5 [&>*]:break-inside-avoid">
       <Account />
       <Section title="Profilo">
         <Field label="Sesso">
@@ -129,9 +130,10 @@ export default function Settings() {
 
       <Notifications />
       <SyncCard demo={boot.demo} />
+      </div>
 
       {dirty && (
-        <div className="pb-safe fixed inset-x-0 bottom-0 z-40 mx-auto flex max-w-md gap-2 bg-gradient-to-t from-bg via-bg to-transparent px-4 pt-6">
+        <div className="pb-safe dock z-40 flex gap-2 bg-gradient-to-t from-bg via-bg to-transparent px-4 pt-6">
           <Button className="flex-1" onClick={() => setS(q.data!.settings)}>
             Annulla
           </Button>

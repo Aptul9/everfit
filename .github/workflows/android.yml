@@ -10,13 +10,15 @@ on:
     paths:
       - 'android/**'
       - 'web/public/.well-known/**'
-      - 'web/scripts/icons.py'
+      - 'web/scripts/icons.mjs'
+      - 'web/public/logo.svg'
       - '.github/workflows/android.yml'
   pull_request:
     paths:
       - 'android/**'
       - 'web/public/.well-known/**'
-      - 'web/scripts/icons.py'
+      - 'web/scripts/icons.mjs'
+      - 'web/public/logo.svg'
       - '.github/workflows/android.yml'
   workflow_dispatch:
 

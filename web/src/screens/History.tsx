@@ -43,7 +43,8 @@ export default function History() {
       {q.isLoading && <Spinner />}
       {q.error && <ErrorBox error={q.error} retry={() => q.refetch()} />}
       {q.data && (
-        <>
+        <div className="lg:grid lg:grid-cols-2 lg:items-start lg:gap-5">
+          <div>
           <Card className="mb-3">
             <DayBars days={q.data.days} onPick={(d) => setOpen(q.data!.days.find((x) => x.day === d) ?? null)} selected={open?.day} />
             <div className="mt-1 flex flex-wrap gap-3 text-[10.5px] text-mu">
@@ -68,11 +69,14 @@ export default function History() {
                 </button>
               ))}
           </Card>
+          </div>
+          <div>
           <Templates templates={q.data.templates} />
           <Button className="mt-3 w-full" onClick={() => nav("/piano#settimana")}>
             Piano della prossima settimana dalle abitudini
           </Button>
-        </>
+          </div>
+        </div>
       )}
       {open && <DaySheet day={open} onClose={() => setOpen(null)} />}
     </div>

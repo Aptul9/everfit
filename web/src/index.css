@@ -91,6 +91,26 @@ input[type="range"]::-moz-range-thumb {
   cursor: pointer;
 }
 
+:root {
+  --sidebar: 248px;
+}
+
+/* Bars pinned to the bottom: phone width on mobile, the content column (right of the sidebar) on desktop. */
+.dock {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  margin-inline: auto;
+  max-width: 28rem;
+}
+@media (min-width: 1024px) {
+  .dock {
+    left: var(--sidebar);
+    max-width: 64rem;
+  }
+}
+
 .pt-safe {
   padding-top: max(env(safe-area-inset-top), 12px);
 }
