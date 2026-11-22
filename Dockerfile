@@ -1,23 +1,32 @@
-FROM rust:1.100.0-alpine@sha256:8d0e82abfdf9a38071e07cabc5afba4ddbe077631a80e4e742a760c38beadc33 AS build
-RUN apk add --no-cache build-base ca-certificates
-WORKDIR /src
-COPY Cargo.toml Cargo.lock rust-toolchain.toml clippy.toml ./
-COPY app/server-rs ./app/server-rs
-RUN cargo build --locked --release --target x86_64-unknown-linux-musl \
-    && install -m 755 target/x86_64-unknown-linux-musl/release/fit /fit \
-    && readelf -l /fit > /tmp/fit-elf \
-    && ! grep -q INTERP /tmp/fit-elf \
-    && install -d -m 750 -o 10001 -g 10001 /data
+FROM node:24-alpine AS web
+WORKDIR /web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY web/ ./
+RUN npm run build
 
-FROM scratch
-COPY --from=build /fit /fit
-COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
-COPY --from=build --chown=10001:10001 /data /data
-COPY app/public /app/public
-COPY app/server/piani /app/server/piani
-WORKDIR /app
+FROM python:3.14-slim
+COPY --from=ghcr.io/astral-sh/uv:0.9 /uv /usr/local/bin/uv
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never
+WORKDIR /app/backend
+COPY backend/pyproject.toml backend/uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
+COPY backend/src ./src
+RUN uv sync --frozen --no-dev && rm /usr/local/bin/uv
+COPY --from=web /web/dist /app/web
+
+# The book corpus and the owner's story are not in this public repository: the deploy brings them from the private
+# one into /private (read-only mount). Without them the coach still works, only the book tools answer "not found".
+ENV PATH=/app/backend/.venv/bin:$PATH \
+    NUTRI_DATA_DIR=/data \
+    NUTRI_WEB_DIR=/app/web \
+    NUTRI_PRIVATE_DIR=/private \
+    NUTRI_HOST=127.0.0.1 \
+    NUTRI_PORT=8097 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+RUN install -d -o 10001 -g 10001 -m 700 /data
 USER 10001:10001
-EXPOSE 8080
-HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=4 CMD ["/fit", "--healthcheck"]
-ENTRYPOINT ["/fit"]
-CMD ["--root", "/app/public", "--data", "/data", "--port", "8080"]
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=4 \
+  CMD ["python", "-c", "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ['NUTRI_PORT'] + '/api/health', timeout=4)"]
+CMD ["sh", "-c", "exec nutri serve --host \"$NUTRI_HOST\" --port \"$NUTRI_PORT\""]

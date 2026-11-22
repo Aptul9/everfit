@@ -1,105 +1,71 @@
-"""HTTP smoke test through Caddy: login, admin-only secret path, forged header ignored, Android app links.
+"""HTTP smoke test through Caddy.
 
-    FIT_CODICE=... FIT_PERCORSO=... python ci/smoke.py --url https://fit.everbright.it [--insecure]
+    python ci/smoke.py --url https://fit.test:4450 --insecure --demo      CI: demo data, sign-in off
+    python ci/smoke.py --url https://fit.everbright.it                    production: everything closed but the shell
 """
+
 import argparse
 import http.client
 import json
-import os
 import ssl
 import sys
-from pathlib import Path
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import urlsplit
 
-ROOT = Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser()
 parser.add_argument("--url", required=True)
 parser.add_argument("--insecure", action="store_true")
+parser.add_argument("--demo", action="store_true")
 args = parser.parse_args()
 base = urlsplit(args.url)
-codice, percorso = os.environ["FIT_CODICE"], os.environ["FIT_PERCORSO"]
-owner_login = os.environ.get("FIT_UTENTE", "admin")
-login = {"utente": owner_login, "password": os.environ.get("FIT_PASSWORD", codice)}
 context = ssl._create_unverified_context() if args.insecure else ssl.create_default_context()
 failures = []
 
 
-def request(method, path, body=None, headers=None):
-    connection = http.client.HTTPSConnection(base.hostname, base.port or 443, context=context, timeout=30)
-    connection.request(method, path, body=body, headers=headers or {})
+def request(method, path, body=None):
+    connection = http.client.HTTPSConnection(base.hostname, base.port or 443, context=context, timeout=60)
+    headers = {"content-type": "application/json"} if body is not None else {}
+    connection.request(method, path, body=json.dumps(body) if body is not None else None, headers=headers)
     response = connection.getresponse()
     data = response.read()
     connection.close()
-    return response.status, data, response
+    return response, data
 
 
-def check(name, condition, detail=""):
-    print(("PASS " if condition else "FAIL ") + name + ("" if condition else " -> %s" % str(detail)[:300]))
-    if not condition:
+def check(name, ok):
+    print(("ok   " if ok else "FAIL ") + name)
+    if not ok:
         failures.append(name)
 
 
-def as_json(data):
-    try:
-        return json.loads(data)
-    except ValueError:
-        return None
+r, data = request("GET", "/api/health")
+check("health", r.status == 200 and json.loads(data)["ok"] is True)
+r, data = request("GET", "/")
+check("web app shell", r.status == 200 and b"<title>EverFit</title>" in data)
+check("security headers", "frame-ancestors 'none'" in (r.getheader("content-security-policy") or "")
+      and r.getheader("strict-transport-security") is not None)
+r, data = request("GET", "/.well-known/assetlinks.json")
+check("android app links", r.status == 200 and "json" in (r.getheader("content-type") or "")
+      and json.loads(data)[0]["target"]["package_name"] == "it.alias_pv60kg.everfit")
+r, data = request("GET", "/manifest.webmanifest")
+check("pwa manifest", r.status == 200 and json.loads(data)["name"] == "EverFit")
 
-
-status, data, _ = request("GET", "/api/health")
-check("health 200", status == 200 and as_json(data) == {"ok": True}, (status, data))
-
-status, data, response = request("GET", "/")
-check("anonymous root shows EverFit login (401)", status == 401 and b"<title>EverFit</title>" in data and b"Ever<em>Fit" in data, status)
-check("no FitFuel left on login page", b"FitFuel" not in data)
-check("security headers", response.getheader("X-Content-Type-Options") == "nosniff" and response.getheader("Server") is None)
-
-status, data, _ = request("GET", "/manifest.webmanifest")
-manifest = as_json(data) or {}
-check("manifest name EverFit", status == 200 and manifest.get("name") == "EverFit" and manifest.get("short_name") == "EverFit", (status, data[:200]))
-
-for header in ("X-Fit-Accesso", "x-fit-accesso"):
-    status, data, _ = request("GET", "/api/io", headers={header: "ok"})
-    check("forged %s ignored (401)" % header, status == 401, (status, data))
-
-status, data, _ = request("GET", "/%s/api/io" % percorso)
-check("secret path is admin", status == 200 and (as_json(data) or {}).get("capo") is True, (status, data))
-
-if os.environ.get("FIT_SMOKE_LOGIN", "1") == "0":
-    # the form is checked by the central accounts behind it: a made-up account is refused, no session
-    status, data, response = request("POST", "/accedi", body=urlencode({"utente": "smoke-nobody", "password": "smoke-wrong"}),
-                                     headers={"Content-Type": "application/x-www-form-urlencoded"})
-    cookies = [value for key, value in response.getheaders() if key.lower() == "set-cookie"]
-    check("wrong credentials refused on the form (401), no session",
-          status == 401 and not any(c.startswith("fitk=") for c in cookies) and b'name="utente"' in data, status)
+if args.demo:
+    r, data = request("GET", "/api/today")
+    today = json.loads(data) if r.status == 200 else {}
+    check("today", bool(today.get("plan", {}).get("meals")))
+    slot = today["plan"]["meals"][0]["slot"] if today.get("plan") else "colazione"
+    r, data = request("POST", f"/api/plan/{today.get('day')}/meals/{slot}/confirm", {})
+    check("confirm a meal", r.status == 200 and json.loads(data)["consumed"]["kcal"] > 0)
+    r, data = request("GET", "/api/progress")
+    check("progress", r.status == 200 and json.loads(data)["expenditure"]["status"] == "data")
+    r, data = request("GET", "/api/checkin")
+    check("check-in", r.status == 200 and "verdict" in json.loads(data))
 else:
-    status, data, response = request("POST", "/accedi", body=urlencode(login),
-                                     headers={"Content-Type": "application/x-www-form-urlencoded"})
-    cookies = [value for key, value in response.getheaders() if key.lower() == "set-cookie"]
-    fitk = next((c.split(";")[0] for c in cookies if c.startswith("fitk=")), None)
-    check("login sets a secure session", status == 303 and fitk is not None and "Secure" in (cookies[0] if cookies else ""), status)
-    if fitk:
-        status, data, _ = request("GET", "/api/io", headers={"Cookie": fitk})
-        profile = as_json(data) or {}
-        check("session is admin", status == 200 and profile.get("capo") is True and profile.get("utente") == owner_login, status)
-        if "FIT_PASSWORD" in os.environ:
-            check("no installed demo plans", not profile.get("piano") and not profile.get("attese"))
-        status, data, _ = request("GET", "/", headers={"Cookie": fitk})
-        check("app shell 200 with EverFit title", status == 200 and b"<title>EverFit</title>" in data, status)
-        status, data, _ = request("POST", "/api/esci", body="{}", headers={"Cookie": fitk, "Content-Type": "application/json"})
-        check("logout", status == 200, (status, data))
-        status, data, _ = request("GET", "/api/io", headers={"Cookie": fitk})
-        check("closed session refused", status == 401, status)
-
-links = ROOT / "app/public/.well-known/assetlinks.json"
-status, data, response = request("GET", "/.well-known/assetlinks.json")
-if links.is_file():
-    check("assetlinks served anonymously as JSON", status == 200 and data == links.read_bytes()
-          and (response.getheader("Content-Type") or "").startswith("application/json"), (status, response.getheader("Content-Type")))
-else:
-    check("assetlinks route answers (404, or the file built into the web image)",
-          status == 404 or (status == 200 and b"delegate_permission" in data), status)
+    r, _ = request("GET", "/api/today")
+    check("api closed without a session", r.status == 401)
+    r, _ = request("GET", "/oidc/login")
+    check("sign-in goes to EverID", r.status == 302 and "id.everbright.it" in (r.getheader("location") or ""))
 
 if failures:
-    sys.exit("HTTP smoke: FAIL %s" % failures)
-print("HTTP smoke: PASS")
+    sys.exit(f"{len(failures)} smoke checks failed")
+print("smoke: all checks passed")

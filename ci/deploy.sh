@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs on the VM as root, from the release bundle CI copied to /opt/everfit. Starts the images CI built and tested
-# (loaded with docker load, checked by image ID): nothing is built or pulled here.
+# (loaded with docker load, checked by config digest): nothing is built or pulled here.
 set -euo pipefail
 umask 077
 
@@ -8,6 +8,8 @@ BASE=/opt/everfit
 DOMAIN=fit.everbright.it
 OTHERS=${EVERFIT_CHECK_OTHERS-push drive servizi calendar meet teams flow}   # empty only in the CI rehearsal
 KEEP_RELEASES=3
+DATA=/opt/everfit/coach
+PRIVATE=/opt/everfit/private
 RELEASE=${1:?release SHA required}
 [[ "$RELEASE" =~ ^[a-f0-9]{40}$ ]] || exit 1
 cd "$BASE"
@@ -17,30 +19,22 @@ test -s image-ids
 test -s environment.new
 command -v sqlite3 >/dev/null
 
-# Shape of the secrets, without printing them: an empty path would turn "//" into an admin route.
-grep -Eq '^FIT_CODICE=[A-Za-z0-9]{12,}$' environment.new
-grep -Eq '^FIT_PERCORSO=[A-Za-z0-9_-]{32,}$' environment.new
-data_dir=/opt/everfit/data
-base_lines=2
-if grep -qx 'FIT_DATA_DIR=/opt/everfit/personal-data' environment.new; then
-  grep -Eq '^FIT_UTENTE=[a-z0-9][a-z0-9._-]{2,23}$' environment.new
-  grep -Eq "^FIT_OWNER_HASH='pbkdf2\\\$240000\\\$[a-f0-9]{32}\\\$[a-f0-9]{64}'$" environment.new
-  base_lines=5
-  data_dir=/opt/everfit/personal-data
+# Shape of the runtime configuration, without printing it (ci/env.py wrote it from the CI secrets).
+grep -Eq '^NUTRI_OIDC_ISSUER=https://[a-z0-9.-]+/application/o/[a-z0-9-]+/$' environment.new
+grep -Eq '^NUTRI_OIDC_CLIENT_ID=[A-Za-z0-9._~-]+$' environment.new
+grep -Eq '^NUTRI_OIDC_CLIENT_SECRET=[A-Za-z0-9._~-]+$' environment.new
+grep -Eq '^NUTRI_OWNER_EMAIL=[^@[:space:]]+@[^@[:space:]]+$' environment.new
+grep -Eq "^CRONOMETER_USERNAME='[^']+'$" environment.new
+grep -Eq "^CRONOMETER_PASSWORD='[^']+'$" environment.new
+grep -qx "FIT_DATA_DIR=$DATA" environment.new
+if grep -q '^NUTRI_AUTH=\|^NUTRI_SOURCE=' environment.new; then
+  echo 'environment.new must not switch sign-in or the data source off' >&2
+  exit 1
 fi
-# EverID (ci/everid_env.py): issuer, client id and secret together, owner e-mail and login flag optional.
-everid_lines=$(grep -c '^FIT_OIDC_\|^FIT_OWNER_EMAIL=\|^FIT_LOGIN_CODICE=' environment.new || true)
-if [[ $everid_lines -gt 0 ]]; then
-  grep -Eq '^FIT_OIDC_ISSUER=https://[a-z0-9.-]+/application/o/[a-z0-9-]+/$' environment.new
-  grep -Eq '^FIT_OIDC_CLIENT_ID=[A-Za-z0-9._~-]+$' environment.new
-  grep -Eq '^FIT_OIDC_CLIENT_SECRET=[A-Za-z0-9._~-]+$' environment.new
-  [[ $(grep -c '^FIT_OIDC_' environment.new) -eq 3 ]]
-  [[ $(grep -c '^FIT_LOGIN_CODICE=' environment.new) -le 1 ]]
-  if grep -q '^FIT_LOGIN_CODICE=' environment.new; then grep -Eq '^FIT_LOGIN_CODICE=[01]$' environment.new; fi
-fi
-[[ $(wc -l < environment.new) -eq $((base_lines + everid_lines)) ]]
+optional=$(grep -c "^CRONOMETER_TOTP_SECRET='[^']\+'$\|^NUTRI_AGENT_MODEL=[a-z0-9.-]\+$" environment.new || true)
+[[ $(wc -l < environment.new) -eq $((7 + optional)) ]]
 
-install -d -m 700 -o 10001 -g 10001 "$data_dir"
+install -d -m 700 -o 10001 -g 10001 "$DATA"
 install -d -m 700 backups bin
 install -d -m 755 releases
 NEXT="$BASE/releases/$RELEASE"
@@ -50,6 +44,21 @@ tar xzf release.tar.gz -C "$NEXT"
 # shellcheck source=ci/sqlite.sh
 source "$NEXT/ci/sqlite.sh"
 chmod 600 environment.new
+
+# Book corpus and the owner's story, from the private repository: readable by the app user only.
+if test -s private.tar.gz; then
+  rm -rf "$PRIVATE.next"
+  install -d -m 750 -o root -g 10001 "$PRIVATE.next"
+  tar xzf private.tar.gz -C "$PRIVATE.next" --no-same-owner
+  chown -R root:10001 "$PRIVATE.next"
+  find "$PRIVATE.next" -type d -exec chmod 750 {} + -o -type f -exec chmod 640 {} +
+  test -s "$PRIVATE.next/story.md"
+  test -s "$PRIVATE.next/corpus/INDEX.md"
+  rm -rf "$PRIVATE"
+  mv "$PRIVATE.next" "$PRIVATE"
+  rm -f private.tar.gz
+fi
+test -d "$PRIVATE"
 
 gunzip -c images.tar.gz | docker load
 # image-ids holds the config digests CI read from the archive of the images it tested.
@@ -68,24 +77,19 @@ export RELEASE
 compose() { docker compose --project-directory "$NEXT" --env-file "$BASE/environment.new" "$@"; }
 compose config --quiet
 
-previous_data=/opt/everfit/data
-if [[ -f .env ]] && grep -qx 'FIT_DATA_DIR=/opt/everfit/personal-data' .env; then
-  previous_data=/opt/everfit/personal-data
-fi
-if [[ -s "$previous_data/fit.db" ]]; then
+if [[ -s "$DATA/nutri.db" ]]; then
   # SQLite online backup (the database is in WAL mode: a file copy could lose the last writes).
-  backup="backups/fit.db.$(date -u +%Y%m%dT%H%M%SZ).${RELEASE:0:12}"
-  sqlite_snapshot "$previous_data/fit.db" "$backup"
+  backup="backups/nutri.db.$(date -u +%Y%m%dT%H%M%SZ).${RELEASE:0:12}"
+  sqlite_snapshot "$DATA/nutri.db" "$backup"
   echo "Database backup: $BASE/$backup"
 fi
-# Pre-deploy copies: 14 days, never fewer than the newest three. (No glob through ls: under pipefail an empty
-# backups directory would stop the first deploy.)
-find backups -maxdepth 1 -name 'fit.db.*' -printf '%T@ %p\n' | sort -rn | tail -n +4 | cut -d' ' -f2- | while read -r old; do
+find backups -maxdepth 1 -name 'nutri.db.*' -printf '%T@ %p\n' | sort -rn | tail -n +4 | cut -d' ' -f2- | while read -r old; do
   if [ -n "$(find "$old" -mtime +14)" ]; then rm -f "$old"; fi
 done
 if [[ -L app ]]; then
   readlink -f app > previous-release
-  if [[ "$previous_data" != "$data_dir" ]]; then
+  # The release before the coach ran another application with its own environment: keep it for a rollback.
+  if [[ -f .env ]] && ! grep -q '^NUTRI_OIDC_ISSUER=' .env; then
     install -m 600 .env "$(cat previous-release)/rollback.env"
   fi
 fi
@@ -98,7 +102,6 @@ if ! cmp -s /etc/sslh.cfg "$BASE/sslh.candidate"; then
     cp -a /etc/sslh.cfg /etc/sslh.cfg.pre-everfit
   fi
   install -m 644 "$BASE/sslh.candidate" /etc/sslh.cfg
-  # sslh has no reload: the restart drops open TLS connections of every app for a moment.
   systemctl restart sslh
   sleep 2
   systemctl is-active --quiet sslh
@@ -106,7 +109,7 @@ if ! cmp -s /etc/sslh.cfg "$BASE/sslh.candidate"; then
 fi
 rm -f "$BASE/sslh.candidate"
 
-compose up -d --wait --wait-timeout 120 --remove-orphans
+compose up -d --wait --wait-timeout 180 --remove-orphans
 mv -f environment.new .env
 compose() { docker compose --project-directory "$NEXT" --env-file "$BASE/.env" "$@"; }
 ln -sfn "$NEXT" app.next
@@ -115,9 +118,13 @@ compose ps
 compose logs --tail 10 app
 
 health=$(curl --fail --silent --show-error --retry 20 --retry-delay 6 --retry-all-errors --max-time 15 "https://$DOMAIN/api/health")
-python3 -c 'import json, sys; assert json.loads(sys.argv[1]) == {"ok": True}, sys.argv[1]' "$health"
+python3 -c 'import json, sys; h = json.loads(sys.argv[1]); assert h.get("ok") is True and h.get("source") == "cronometer", h' "$health"
 page=$(curl --silent --max-time 15 "https://$DOMAIN/")
 grep -q '<title>EverFit</title>' <<< "$page"
+links=$(curl --fail --silent --max-time 15 "https://$DOMAIN/.well-known/assetlinks.json")
+grep -q 'it.alias_pv60kg.everfit' <<< "$links"
+code=$(curl --silent --output /dev/null --max-time 15 --write-out '%{http_code}' "https://$DOMAIN/api/today")
+test "$code" = 401
 
 failed=0
 for name in $OTHERS; do
@@ -135,13 +142,16 @@ install -d -m 755 /etc/systemd/system/backup-dati.service.d
 printf '[Unit]\nWants=everfit-backup.service\n' > /etc/systemd/system/backup-dati.service.d/everfit.conf
 chmod 644 /etc/systemd/system/backup-dati.service.d/everfit.conf
 systemctl daemon-reload
-systemctl start everfit-backup.service
-journalctl -u everfit-backup.service -n 1 --no-pager -o cat
+if [[ -s "$DATA/nutri.db" ]]; then
+  systemctl start everfit-backup.service
+  journalctl -u everfit-backup.service -n 1 --no-pager -o cat
+fi
 
 # Keep the newest releases and their images; the current and previous one are always among them.
 ls -1dt releases/*/ | tail -n +$((KEEP_RELEASES + 1)) | while read -r old; do
   old=${old%/}
   test "$old" = "releases/$RELEASE" && continue
+  test "$BASE/$old" = "$(cat previous-release 2>/dev/null || true)" && continue
   docker image rm "everfit:${old##*/}" "everfit-web:${old##*/}" >/dev/null 2>&1 || true
   rm -rf "$old"
 done

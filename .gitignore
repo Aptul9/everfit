@@ -1,25 +1,27 @@
-# dati veri e credenziali: mai nel repository
-# (attenzione: app/public/data/ invece va tenuta, c'e' il catalogo plan.json)
-/data/
-/dati*/
-/app/data/
-/app/dati*/
-/app/deploy/data/
-/app/deploy/ollama/
+# real data and credentials: never in the repository (public)
+/private/
+backend/data-local/
 *.db
 *.db-wal
 *.db-shm
-*.db.*.copia
-accesso.env
+.env
 *.env
-config.json
-chiavi/
+environment.new
 
-# file generati da Python e dagli editor
+# the book corpus and the owner's story live in the private repository only
+corpus/
+story.md
+
 __pycache__/
 *.pyc
 .venv/
-venv/
+.pytest_cache/
+.ruff_cache/
+web/node_modules/
+web/dist/
+web/dev-dist/
+web/tsconfig.tsbuildinfo
+.openchamber/
 .claude/
 .vscode/
 .idea/

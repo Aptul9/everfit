@@ -3,7 +3,7 @@
 sqlite_verify() {
   test -s "$1" &&
     test "$(sqlite3 -batch -bail -readonly -cmd '.timeout 15000' "$1" 'PRAGMA integrity_check;')" = ok &&
-    sqlite3 -batch -bail -readonly "$1" 'SELECT COUNT(*) FROM utenti; SELECT COUNT(*) FROM stato;' >/dev/null
+    sqlite3 -batch -bail -readonly "$1" 'SELECT COUNT(*) FROM kv; SELECT COUNT(*) FROM diary_days;' >/dev/null
 }
 
 sqlite_snapshot() {

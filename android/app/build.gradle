@@ -11,7 +11,7 @@ def appVersionCode = (project.findProperty('versionCode') ?: '1') as Integer
 def appVersionName = rootProject.file('VERSION').text.trim()
 // only the emulator test opens a local copy (-PlaunchOrigin=http://10.0.2.2:8080); releases open the site
 def launchOrigin = project.findProperty('launchOrigin') ?: "https://${host}"
-def background = '#090A0D'
+def background = '#0A0C0F'
 
 android {
     namespace = 'it.alias_pv60kg.everfit'
@@ -31,7 +31,7 @@ android {
 
         resValue 'string', 'appName', 'EverFit'
         resValue 'string', 'launcherName', 'EverFit'
-        // ?apk=<versionCode> tells the web app (js/apk.js) which shell is installed
+        // ?apk=<versionCode> tells the web app (UpdateBanner) which shell is installed
         resValue 'string', 'launchUrl', "${launchOrigin}/?apk=${appVersionCode}"
         resValue 'string', 'hostName', host
         resValue 'string', 'providerAuthority', 'it.alias_pv60kg.everfit.fileprovider'

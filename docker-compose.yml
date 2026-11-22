@@ -1,46 +1,56 @@
 name: everfit
 
 # Images are built and tested in CI, shipped with docker save/load and started by tag: never built or pulled here.
+# Both services use the host network: the coach reaches Meridian on the host loopback (127.0.0.1:3456), and every
+# listener binds 127.0.0.1 only, with sslh in front on 443.
 services:
   app:
     image: everfit:${RELEASE:?RELEASE required}
     pull_policy: never
+    network_mode: host
     environment:
-      FIT_CODICE: ${FIT_CODICE:?FIT_CODICE required}
-      FIT_UTENTE: ${FIT_UTENTE:-admin}
-      FIT_OWNER_HASH: ${FIT_OWNER_HASH:-}
-      FIT_NOME: ${FIT_UTENTE:-Admin}
-      FIT_SITO: https://${FIT_DOMINIO:-fit.everbright.it}
-      FIT_FUSO: Europe/Rome
-      # EverID: off while issuer, client id or secret is empty; FIT_LOGIN_CODICE=0 turns the username login off
-      FIT_OIDC_ISSUER: ${FIT_OIDC_ISSUER:-}
-      FIT_OIDC_CLIENT_ID: ${FIT_OIDC_CLIENT_ID:-}
-      FIT_OIDC_CLIENT_SECRET: ${FIT_OIDC_CLIENT_SECRET:-}
-      FIT_OWNER_EMAIL: ${FIT_OWNER_EMAIL:-}
-      FIT_LOGIN_CODICE: ${FIT_LOGIN_CODICE:-1}
+      NUTRI_PORT: ${APP_PORT:-8097}
+      NUTRI_PUBLIC_URL: https://${FIT_DOMINIO:-fit.everbright.it}${PUBLIC_PORT_SUFFIX:-}
+      NUTRI_TZ: Europe/Rome
+      NUTRI_SOURCE: ${NUTRI_SOURCE:-cronometer}
+      NUTRI_AUTH: ${NUTRI_AUTH:-}
+      NUTRI_OIDC_ISSUER: ${NUTRI_OIDC_ISSUER:-}
+      NUTRI_OIDC_CLIENT_ID: ${NUTRI_OIDC_CLIENT_ID:-}
+      NUTRI_OIDC_CLIENT_SECRET: ${NUTRI_OIDC_CLIENT_SECRET:-}
+      NUTRI_OWNER_EMAIL: ${NUTRI_OWNER_EMAIL:-}
+      NUTRI_AGENT_MODEL: ${NUTRI_AGENT_MODEL:-claude-sonnet-5-5}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-http://127.0.0.1:3456}
+      CRONOMETER_USERNAME: ${CRONOMETER_USERNAME:-}
+      CRONOMETER_PASSWORD: ${CRONOMETER_PASSWORD:-}
+      CRONOMETER_TOTP_SECRET: ${CRONOMETER_TOTP_SECRET:-}
+      CRONOMETER_ACCOUNT_TZ: Europe/Rome
     volumes:
-      - ${FIT_DATA_DIR:-/opt/everfit/data}:/data
+      - ${FIT_DATA_DIR:-/opt/everfit/coach}:/data
+      - ${FIT_PRIVATE_DIR:-/opt/everfit/private}:/private:ro
     read_only: true
-    stop_grace_period: 45s
+    tmpfs:
+      - /tmp:size=33554432,mode=1777
+    stop_grace_period: 30s
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     restart: unless-stopped
-    mem_limit: 256m
+    mem_limit: 512m
     pids_limit: 200
     logging:
       driver: json-file
       options:
         max-size: 10m
         max-file: "3"
+
   web:
     image: everfit-web:${RELEASE:?RELEASE required}
     pull_policy: never
+    network_mode: host
     environment:
       DOMAIN: ${FIT_DOMINIO:-fit.everbright.it}
       FIT_TLS: ${FIT_TLS:-acme}
-      FIT_PERCORSO: ${FIT_PERCORSO:?FIT_PERCORSO required}
-    ports:
-      - 127.0.0.1:${HTTPS_PORT:-4450}:8443
+      HTTPS_PORT: ${HTTPS_PORT:-4450}
+      APP_PORT: ${APP_PORT:-8097}
     volumes:
       - certificates:/data
       - caddy_config:/config
