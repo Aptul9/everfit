@@ -1,6 +1,8 @@
 {
 	# Host network (the app needs Meridian on the host loopback): bind loopback only, sslh owns 443.
 	default_bind 127.0.0.1
+	# other host-network Caddys on the VM already own 127.0.0.1:2019; config reloads are not used here
+	admin off
 	http_port 4458
 	https_port {$HTTPS_PORT:4450}
 	auto_https disable_redirects
