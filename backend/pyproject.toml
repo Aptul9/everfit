@@ -1,0 +1,40 @@
+[project]
+name = "nutri"
+version = "0.1.0"
+description = "Personal nutrition coach on top of Cronometer, built on Project Nutrition"
+requires-python = ">=3.14"
+dependencies = [
+    "cronometer-api-mcp>=0.2.6",
+    "fastapi>=0.120",
+    "httpx>=0.28",
+    "pydantic>=2.11",
+    "pywebpush>=2.0",
+    "uvicorn[standard]>=0.38",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4",
+    "ruff>=0.14",
+]
+
+[project.scripts]
+nutri = "nutri.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nutri"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]  # the formatter owns line length; long SQL and prompt strings stay whole
