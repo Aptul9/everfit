@@ -23,11 +23,20 @@ export default function Progress() {
   return (
     <div className="animate-rise">
       <Header eyebrow="Trend e stima adattiva" title="Progressi" />
-      <Segmented className="mb-2" value={tab} onChange={setTab} options={[{ value: "peso", label: "Peso" }, { value: "metab", label: "Metabolismo" }]} />
-      <Segmented className="mb-3" value={days} onChange={setDays} options={RANGES} />
+      <Segmented className="mb-2 lg:hidden" value={tab} onChange={setTab} options={[{ value: "peso", label: "Peso" }, { value: "metab", label: "Metabolismo" }]} />
+      <Segmented className="mb-3 lg:max-w-md" value={days} onChange={setDays} options={RANGES} />
       {q.isLoading && <Spinner />}
       {q.error && <ErrorBox error={q.error} retry={() => q.refetch()} />}
-      {q.data && (tab === "peso" ? <Weight p={q.data} /> : <Metab p={q.data} />)}
+      {q.data && (
+        <div className="lg:grid lg:grid-cols-2 lg:items-start lg:gap-5">
+          <div className={tab === "peso" ? "" : "hidden lg:block"}>
+            <Weight p={q.data} />
+          </div>
+          <div className={tab === "metab" ? "" : "hidden lg:block"}>
+            <Metab p={q.data} />
+          </div>
+        </div>
+      )}
     </div>
   )
 }

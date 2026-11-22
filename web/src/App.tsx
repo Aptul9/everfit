@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import clsx from "clsx"
-import { CalendarDays, House, ListChecks, Sparkles, TrendingUp } from "lucide-react"
+import { CalendarDays, House, ListChecks, Settings2, Sparkles, TrendingUp } from "lucide-react"
 import { createContext, useCallback, useContext, useEffect, useState } from "react"
 import { NavLink, Route, Routes, useLocation, useNavigate } from "react-router"
 import { Spinner, Toast } from "./components/ui"
@@ -50,7 +50,7 @@ export default function App() {
   if (auth.isLoading) return <Shell><Spinner /></Shell>
   if (unauth || (auth.data && !auth.data.ok)) {
     return (
-      <Shell>
+      <Shell wide>
         <Login mode={auth.data?.mode ?? "oidc"} onDone={() => { setUnauth(false); auth.refetch(); qc.invalidateQueries() }} />
       </Shell>
     )
@@ -68,8 +68,10 @@ export default function App() {
   }
   return (
     <AppCtx.Provider value={{ boot: boot.data, toast }}>
-      <Shell>
-        <main className="pt-safe px-4 pb-32">
+      <Shell wide>
+        <Sidebar />
+        <main className="pt-safe px-4 pb-32 lg:pl-[calc(var(--sidebar)+2rem)] lg:pr-8 lg:pb-12 lg:pt-8">
+          <div className="lg:mx-auto lg:max-w-5xl">
           <Routes>
             <Route path="/" element={<Today />} />
             <Route path="/storico" element={<History />} />
@@ -81,6 +83,7 @@ export default function App() {
             <Route path="/impostazioni" element={<Settings />} />
             <Route path="*" element={<Today />} />
           </Routes>
+          </div>
         </main>
         <UpdateBanner />
         <TabBar />
@@ -90,8 +93,63 @@ export default function App() {
   )
 }
 
-function Shell({ children }: { children: React.ReactNode }) {
-  return <div className="relative mx-auto min-h-dvh w-full max-w-md bg-bg">{children}</div>
+function Shell({ children, wide }: { children: React.ReactNode; wide?: boolean }) {
+  return <div className={clsx("relative mx-auto min-h-dvh w-full bg-bg", !wide && "max-w-md")}>{children}</div>
+}
+
+const SIDE = [
+  { to: "/", label: "Oggi", icon: House },
+  { to: "/storico", label: "Storico", icon: CalendarDays },
+  { to: "/progressi", label: "Progressi", icon: TrendingUp },
+  { to: "/piano", label: "Piano", icon: ListChecks },
+  { to: "/impostazioni", label: "Impostazioni", icon: Settings2 },
+]
+
+function Sidebar() {
+  const { boot } = useApp()
+  return (
+    <aside className="fixed inset-y-0 left-0 z-40 hidden w-[var(--sidebar)] flex-col border-r border-ln bg-[#0c0f13] px-4 py-6 lg:flex">
+      <div className="mb-8 flex items-center gap-3 px-2">
+        <img src="/logo.svg" alt="" className="size-9 rounded-[11px]" />
+        <div>
+          <div className="text-[16px] font-bold tracking-[-0.01em]">EverFit</div>
+          <div className="text-[11px] text-mu">{boot.phase?.name ?? "coach nutrizionale"}</div>
+        </div>
+      </div>
+      <NavLink
+        to="/coach"
+        className={({ isActive }) =>
+          clsx(
+            "mb-4 flex items-center gap-2.5 rounded-2xl px-3.5 py-3 text-[13.5px] font-bold transition",
+            isActive ? "bg-gradient-to-br from-ac2 to-mi text-bg" : "border border-ac/30 bg-ac/10 text-ac hover:bg-ac/15",
+          )
+        }
+      >
+        <Sparkles className="size-[18px]" /> Chiedi al coach
+      </NavLink>
+      <nav className="flex flex-col gap-1">
+        {SIDE.map((t) => (
+          <NavLink
+            key={t.to}
+            to={t.to}
+            end={t.to === "/"}
+            className={({ isActive }) =>
+              clsx(
+                "flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-[13.5px] font-medium transition-colors",
+                isActive ? "bg-s2 text-tx" : "text-mu hover:bg-s1 hover:text-tx",
+              )
+            }
+          >
+            <t.icon className="size-[18px]" strokeWidth={1.8} />
+            {t.label}
+          </NavLink>
+        ))}
+      </nav>
+      <div className="mt-auto rounded-2xl border border-ln bg-s1 p-3.5 text-[11.5px] leading-relaxed text-mu">
+        Diario su Cronometer{boot.cronometer.username ? ` · ${boot.cronometer.username}` : ""}. Metodo di Project Nutrition, conti fatti dal motore.
+      </div>
+    </aside>
+  )
 }
 
 function TabBar() {
@@ -99,7 +157,7 @@ function TabBar() {
   const nav = useNavigate()
   if (loc.pathname.startsWith("/coach") || loc.pathname.startsWith("/piano/modifica")) return null
   return (
-    <nav className="pb-safe fixed inset-x-0 bottom-0 z-40 mx-auto max-w-md border-t border-ln bg-[#0e1115]/95 backdrop-blur-xl">
+    <nav className="pb-safe fixed inset-x-0 bottom-0 z-40 mx-auto max-w-md border-t border-ln bg-[#0e1115]/95 backdrop-blur-xl lg:hidden">
       <div className="flex items-start justify-around px-1.5 pt-2">
         {TABS.map((t) =>
           t.fab ? (

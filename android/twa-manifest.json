@@ -6,7 +6,7 @@
   "display": "standalone",
   "startUrl": "/",
   "iconUrl": "https://fit.everbright.it/icon-512.png",
-  "maskableIconUrl": "https://fit.everbright.it/icon-512.png",
+  "maskableIconUrl": "https://fit.everbright.it/icon-maskable-512.png",
   "themeColor": "#0A0C0F",
   "themeColorDark": "#0A0C0F",
   "navigationColor": "#0A0C0F",

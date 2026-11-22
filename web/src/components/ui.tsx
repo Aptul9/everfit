@@ -134,9 +134,9 @@ export function Sheet({
   }, [open, onClose])
   if (!open) return null
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center">
+    <div className="fixed inset-0 z-50 flex items-end justify-center lg:items-center lg:p-8">
       <div className="absolute inset-0 animate-fade bg-black/60" onClick={onClose} />
-      <div className="pb-safe relative flex max-h-[88dvh] w-full max-w-md animate-sheet flex-col rounded-t-[26px] border-t border-ln bg-[#14181e]">
+      <div className="pb-safe relative flex max-h-[88dvh] w-full max-w-md animate-sheet flex-col rounded-t-[26px] border-t border-ln bg-[#14181e] lg:max-w-lg lg:rounded-[26px] lg:border lg:pb-3 lg:shadow-2xl">
         <div className="mx-auto mt-2.5 mb-1 h-1 w-10 rounded-full bg-[#39414c]" />
         {title && (
           <div className="flex items-center justify-between px-4 pt-1 pb-2">
@@ -290,7 +290,7 @@ export function Toast({ message, onDone }: { message: string | null; onDone: () 
   }, [message, onDone])
   if (!message) return null
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-28 z-[60] flex justify-center px-6">
+    <div className="pointer-events-none fixed inset-x-0 bottom-28 z-[60] flex justify-center px-6 lg:bottom-8 lg:left-[var(--sidebar)]">
       <div className="animate-rise rounded-2xl border border-ln bg-s2/95 px-4 py-2.5 text-[13px] font-medium shadow-xl backdrop-blur">{message}</div>
     </div>
   )

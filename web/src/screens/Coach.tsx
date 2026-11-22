@@ -81,7 +81,7 @@ export default function Coach() {
 
   const entries = history.data ?? []
   return (
-    <div className="flex min-h-[calc(100dvh-24px)] flex-col">
+    <div className="flex min-h-[calc(100dvh-24px)] flex-col lg:mx-auto lg:max-w-3xl">
       <div className="sticky top-0 z-20 -mx-4 flex items-center justify-between border-b border-ln bg-bg/95 px-3 pt-2 pb-2.5 backdrop-blur">
         <button onClick={() => nav(-1)} className="grid size-9 place-items-center rounded-xl text-mu active:bg-s2" aria-label="Indietro">
           <ChevronLeft className="size-5" />
@@ -129,7 +129,7 @@ export default function Coach() {
         <div ref={endRef} />
       </div>
 
-      <div className="pb-safe fixed inset-x-0 bottom-0 z-30 mx-auto max-w-md bg-gradient-to-t from-bg via-bg to-transparent px-3 pt-6">
+      <div className="pb-safe dock z-30 bg-gradient-to-t from-bg via-bg to-transparent px-3 pt-6">
         <div className="mb-2 flex gap-1.5 overflow-x-auto">
           {CHIPS.map((c) => (
             <button key={c} onClick={() => send(c)} disabled={!!pending || !boot.agent} className="shrink-0 rounded-full border border-ln bg-s2 px-3 py-1.5 text-[11.5px] text-tx2 active:bg-s3 disabled:opacity-40">

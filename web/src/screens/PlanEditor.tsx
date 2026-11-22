@@ -134,7 +134,7 @@ export default function PlanEditor() {
   if (q.error) return <ErrorBox error={q.error} retry={() => q.refetch()} />
 
   return (
-    <div className="animate-rise pb-24">
+    <div className="animate-rise pb-24 lg:mx-auto lg:max-w-3xl">
       <div className="mb-2 flex items-center justify-between pt-1.5">
         <button className="text-[13px] text-mu" onClick={() => (dirty ? setMeals(q.data ? fromPlan(q.data) : []) : nav(-1))}>
           {dirty ? "Annulla modifiche" : "‹ Indietro"}
@@ -236,7 +236,7 @@ export default function PlanEditor() {
         Ribilancia muove solo ciò che non è bloccato: prima le proteine, poi i grassi aggiunti se in eccesso, poi i carboidrati. Verdure e lucchetti non si toccano. Il piano è indicativo: puoi salvarlo anche fuori target.
       </div>
 
-      <div className="pb-safe fixed inset-x-0 bottom-0 z-30 mx-auto flex max-w-md gap-2 bg-gradient-to-t from-bg via-bg to-transparent px-4 pt-6">
+      <div className="pb-safe dock z-30 flex gap-2 bg-gradient-to-t from-bg via-bg to-transparent px-4 pt-6">
         <Button className="flex-1" onClick={() => nav(-1)}>
           Chiudi
         </Button>

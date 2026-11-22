@@ -27,7 +27,7 @@ export default function UpdateBanner() {
   }, [])
   if (!latest) return null
   return (
-    <div className="fixed inset-x-0 bottom-24 z-40 mx-auto max-w-md px-4">
+    <div className="dock z-40 px-4 !bottom-24 lg:!bottom-6">
       <div className="flex animate-rise items-center gap-3 rounded-2xl border border-ac/30 bg-s1/95 px-3.5 py-3 shadow-xl backdrop-blur">
         <Download className="size-5 shrink-0 text-ac" />
         <a href={APK} className="flex-1 text-[12.5px]">

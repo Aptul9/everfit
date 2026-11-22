@@ -10,7 +10,7 @@ The Android app is a [Trusted Web Activity](https://developer.chrome.com/docs/an
 | `app/build.gradle` | package `it.alias_pv60kg.everfit` (hyphen is not valid in a Java package), launch URL, colors, signing, R8 |
 | `VERSION` | `versionName`; bump it for a release people should notice |
 | `app/src/main/AndroidManifest.xml` | androidbrowserhelper activities and the notification delegation service |
-| `app/src/main/res` | icons and splash, written by `web/scripts/icons.py` from the same ring as the web icons |
+| `app/src/main/res` | icons and splash, written by `web/scripts/icons.mjs` from `web/public/logo.svg`, like the web icons |
 | `app/lint.xml` | lint runs with warnings as errors; only "newer version available" checks are informational |
 
 Scaffolded once with Bubblewrap 1.27.0, then trimmed by hand. Do not run `bubblewrap update` on this folder: it would bring the removed code back.

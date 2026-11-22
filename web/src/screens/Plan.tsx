@@ -27,7 +27,11 @@ export default function Plan() {
   return (
     <div className="animate-rise">
       <Header eyebrow="Fase attiva" title="Piano" />
+      <div className="lg:grid lg:grid-cols-2 lg:items-start lg:gap-5">
+      <div>
       <PhaseCard phase={phase} templates={templates} weight={today.data?.weight.trend ?? null} expenditure={today.data?.expenditure.kcal ?? null} />
+      </div>
+      <div>
       <Card className="mb-3" onClick={() => nav(`/piano/modifica/${boot.today}`)}>
         <div className="flex items-center gap-3">
           <Pencil className="size-4 text-ac" />
@@ -50,6 +54,8 @@ export default function Plan() {
       </Card>
       <div ref={weekRef}>
         <WeekPlan />
+      </div>
+      </div>
       </div>
     </div>
   )

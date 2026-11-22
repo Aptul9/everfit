@@ -40,7 +40,7 @@ export default function Checkin() {
   if (!c) return null
   if (c.too_early) {
     return (
-      <div className="animate-rise">
+      <div className="animate-rise lg:mx-auto lg:max-w-3xl">
         <Header title="Check-in" onBack={() => nav(-1)} />
         <Card>
           <b className="text-[14px]">Il primo check-in arriva {shortDay(c.first!)}</b>
@@ -51,7 +51,7 @@ export default function Checkin() {
   }
   const inBand = c.rate_kg_week != null && c.phase.band_kg_week[0] <= c.rate_kg_week && c.rate_kg_week <= c.phase.band_kg_week[1]
   return (
-    <div className="animate-rise">
+    <div className="animate-rise lg:mx-auto lg:max-w-3xl">
       <Header eyebrow={`Settimana ${range(c.week_start, c.week_end)}`} title="Check-in" onBack={() => nav(-1)} />
       <div className="mb-3 grid grid-cols-2 gap-2.5">
         <Kpi label="Ritmo del peso" value={c.rate_kg_week == null ? "–" : `${signed(c.rate_kg_week, 2)} kg`} foot={<Chip tone={c.rate_kg_week == null ? "neutral" : inBand ? "ok" : "wa"}>{c.rate_kg_week == null ? "n/d" : inBand ? "nella forbice" : "fuori forbice"}</Chip>} />
