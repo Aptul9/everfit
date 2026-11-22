@@ -1,7 +1,9 @@
-"""Sign-in through EverID (Authentik, OpenID Connect, authorization code with PKCE).
+"""Sign-in through EverID (Authentik), invisible to the person.
 
-The application keeps no password. EverID decides who may enter (the app-fit group); the
-optional owner e-mail narrows it to one person. The session is a signed cookie.
+The app shows its own form; the username (or e-mail) and password are checked on EverID through its flow
+executor, the same login flow its own page runs, and are never stored or logged. The account must be in the
+`app-fit` group, and the optional owner e-mail narrows it to one person. "Altre opzioni di accesso" leads to the
+normal OpenID Connect authorization page (passkeys, second factor). The session is a signed cookie.
 
 The ID token is read without checking its signature: it comes straight from the token
 endpoint over TLS, which OpenID Connect Core 3.1.3.7 accepts in place of the signature.
@@ -13,12 +15,15 @@ import hmac
 import json
 import logging
 import secrets
+import threading
 import time
-from urllib.parse import urlencode
+from collections import defaultdict, deque
+from urllib.parse import urlencode, urlsplit
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -26,6 +31,16 @@ SESSION = "nutri_session"
 FLOW = "nutri_oidc"
 SESSION_DAYS = 90
 FLOW_SECONDS = 600
+GROUP = "app-fit"
+LOGIN_FLOW = "default-authentication-flow"
+LOGOUT_FLOW = "default-invalidation-flow"
+ATTEMPTS = 5  # failed form logins per client address within WINDOW seconds
+WINDOW = 600
+
+WRONG = "Nome utente o password sbagliati."
+NO_ACCESS = "Questo account non ha accesso a EverFit."
+DOWN = "Il servizio di accesso non risponde: riprova tra poco."
+TOO_MANY = "Troppi tentativi sbagliati: riprova tra qualche minuto."
 
 
 def _b64(data: bytes) -> str:
@@ -91,6 +106,146 @@ def _discovery(request: Request) -> Discovery:
 
 def _safe_next(value: str | None) -> str:
     return value if value and value.startswith("/") and not value.startswith("//") else "/"
+
+
+def _session_cookie(cfg, resp: Response, user: dict) -> None:
+    session = {**user, "iat": int(time.time())}
+    resp.set_cookie(
+        SESSION,
+        seal(cfg.secret, session),
+        max_age=SESSION_DAYS * 86400,
+        httponly=True,
+        samesite="lax",
+        secure=cfg.public_url.startswith("https://"),
+    )
+
+
+# ---------- the app's own form ----------
+
+_failed: dict[str, deque] = defaultdict(deque)
+_failed_lock = threading.Lock()
+
+
+def _blocked(ip: str, now: float) -> bool:
+    with _failed_lock:
+        q = _failed[ip]
+        while q and now - q[0] > WINDOW:
+            q.popleft()
+        return len(q) >= ATTEMPTS
+
+
+def _fail(ip: str, now: float) -> None:
+    with _failed_lock:
+        _failed[ip].append(now)
+
+
+class FlowDown(RuntimeError):
+    pass
+
+
+def check_password(
+    issuer: str, username: str, password: str, transport: httpx.BaseTransport | None = None
+) -> dict | None:
+    """Run EverID's real login flow with these credentials: identification, then password. Returns the account
+    (`uid`, `email`, `name`, `username`, `groups`) or None when they are wrong. Any other step (second factor,
+    denial) or a step asked twice is "not valid" here: the person can still use the authorization page."""
+    parts = urlsplit(issuer)
+    base = f"{parts.scheme}://{parts.netloc}"
+    flow = f"{base}/api/v3/flows/executor/{LOGIN_FLOW}/?query="
+    # the executor answers each POST with a 302 to the GET of the next step
+    with httpx.Client(
+        timeout=15, transport=transport, follow_redirects=True, headers={"accept": "application/json"}
+    ) as http:
+
+        def call(url: str, body: dict | None = None) -> tuple[int, dict]:
+            headers = {"x-authentik-csrf": http.cookies.get("authentik_csrf") or ""}
+            try:
+                r = (
+                    http.post(url, json=body, headers=headers)
+                    if body is not None
+                    else http.get(url, headers=headers)
+                )
+            except httpx.HTTPError as exc:
+                log.error("EverID flow executor unreachable: %s", exc)
+                raise FlowDown from exc
+            try:
+                return r.status_code, r.json()
+            except ValueError:
+                return r.status_code, {}
+
+        _, step = call(flow)
+        sent: list[str] = []
+        while True:
+            comp = step.get("component", "")
+            if comp == "xak-flow-redirect":
+                break
+            if comp == "ak-stage-identification":
+                body = {"component": comp, "uid_field": username, "password": password}
+            elif comp == "ak-stage-password":
+                body = {"component": comp, "password": password}
+            elif not comp:
+                raise FlowDown
+            else:
+                log.info("EverID form: step %s not handled", comp)
+                return None
+            if comp in sent:
+                return None
+            sent.append(comp)
+            _, step = call(flow, body)
+        status, me = call(f"{base}/api/v3/core/users/me/")
+        if status != 200:
+            raise FlowDown
+        try:
+            call(
+                f"{base}/api/v3/flows/executor/{LOGOUT_FLOW}/?query="
+            )  # the check needs no session on EverID
+        except FlowDown:
+            pass
+    u = me.get("user") or {}
+    email = (u.get("email") or "").strip().lower()
+    if u.get("is_active") is not True or not u.get("uid") or "@" not in email:
+        return None
+    return {
+        "uid": u["uid"],
+        "email": email,
+        "name": (u.get("name") or "").strip() or email,
+        "username": u.get("username") or "",
+        "groups": [g.get("name") for g in u.get("groups") or []],
+    }
+
+
+class LoginBody(BaseModel):
+    username: str
+    password: str
+
+
+@router.post("/api/auth/login")
+def form_login(body: LoginBody, request: Request, response: Response):
+    cfg = _cfg(request)
+    if cfg.auth != "oidc":
+        raise HTTPException(404, "accesso EverID non configurato")
+    ip = (request.headers.get("x-real-ip") or (request.client.host if request.client else "")).strip()
+    now = time.time()
+    if _blocked(ip, now):
+        raise HTTPException(429, TOO_MANY)
+    username = body.username.strip()
+    if not username or not body.password or len(username) > 150:
+        raise HTTPException(401, WRONG)
+    try:
+        account = check_password(
+            cfg.oidc_issuer, username, body.password, getattr(request.app.state, "everid_transport", None)
+        )
+    except FlowDown as exc:
+        raise HTTPException(502, DOWN) from exc
+    if account is None:
+        _fail(ip, now)
+        raise HTTPException(401, WRONG)
+    if GROUP not in account["groups"] or (cfg.owner_email and account["email"] != cfg.owner_email):
+        log.info("form sign-in refused for %s", account["email"])
+        raise HTTPException(403, NO_ACCESS)
+    user = {"sub": account["uid"], "email": account["email"], "name": account["name"]}
+    _session_cookie(cfg, response, user)
+    return {"ok": True, "user": {"email": user["email"], "name": user["name"]}}
 
 
 @router.get("/oidc/login")
@@ -200,17 +355,7 @@ def callback(request: Request, code: str | None = None, state: str | None = None
     return resp
 
 
-@router.get("/oidc/logout")
-def logout(request: Request):
-    cfg = _cfg(request)
-    target = "/"
-    if cfg.auth == "oidc":
-        try:
-            end = _discovery(request).get().get("end_session_endpoint")
-            if end:
-                target = end
-        except httpx.HTTPError:
-            pass
-    resp = RedirectResponse(target, status_code=302)
-    resp.delete_cookie(SESSION)
-    return resp
+@router.post("/api/auth/logout")
+def logout(response: Response):
+    response.delete_cookie(SESSION)
+    return {"ok": True}

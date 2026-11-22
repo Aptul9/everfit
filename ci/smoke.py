@@ -64,7 +64,9 @@ else:
     r, _ = request("GET", "/api/today")
     check("api closed without a session", r.status == 401)
     r, _ = request("GET", "/oidc/login")
-    check("sign-in goes to EverID", r.status == 302 and "id.everbright.it" in (r.getheader("location") or ""))
+    check("other sign-in options go to EverID", r.status == 302 and "id.everbright.it" in (r.getheader("location") or ""))
+    r, data = request("POST", "/api/auth/login", {"username": "smoke-test-nobody", "password": "not-a-password-2026"})
+    check("sign-in form reaches EverID and refuses wrong credentials", r.status == 401)
 
 if failures:
     sys.exit(f"{len(failures)} smoke checks failed")
