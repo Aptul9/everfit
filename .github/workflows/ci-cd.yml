@@ -173,9 +173,6 @@ jobs:
           OIDC_CLIENT_ID: ${{ secrets.OIDC_CLIENT_ID }}
           OIDC_CLIENT_SECRET: ${{ secrets.OIDC_CLIENT_SECRET }}
           FIT_OWNER_EMAIL: ${{ vars.FIT_OWNER_EMAIL }}
-          CRONOMETER_USERNAME: ${{ secrets.CRONOMETER_USERNAME }}
-          CRONOMETER_PASSWORD: ${{ secrets.CRONOMETER_PASSWORD }}
-          CRONOMETER_TOTP_SECRET: ${{ secrets.CRONOMETER_TOTP_SECRET }}
           NUTRI_AGENT_MODEL: ${{ vars.NUTRI_AGENT_MODEL }}
         run: |
           umask 077

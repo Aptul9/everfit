@@ -55,7 +55,7 @@ export default function App() {
     )
   }
   if (!boot.data) return <Shell>{boot.error ? <div className="p-6 text-er">{String(boot.error)}</div> : <Spinner />}</Shell>
-  if (boot.data.needs_profile || !boot.data.phase) {
+  if (!boot.data.cronometer.connected || boot.data.needs_profile || !boot.data.phase) {
     return (
       <Shell>
         <AppCtx.Provider value={{ boot: boot.data, toast }}>

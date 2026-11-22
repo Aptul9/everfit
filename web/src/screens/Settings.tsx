@@ -3,6 +3,7 @@ import { Bell, CloudCog, RefreshCw } from "lucide-react"
 import { useEffect, useState } from "react"
 import { useNavigate } from "react-router"
 import { useApp } from "../App"
+import CronometerForm from "../components/CronometerForm"
 import { Button, Card, Chip, ErrorBox, Header, Segmented, Spinner } from "../components/ui"
 import { api, post, put, type JsonSchema, type Settings as SettingsT, type SyncStatus } from "../lib/api"
 import { n0 } from "../lib/format"
@@ -259,7 +260,12 @@ function Notifications() {
 
 function SyncCard({ demo }: { demo: boolean }) {
   const qc = useQueryClient()
-  const { toast } = useApp()
+  const { toast, boot } = useApp()
+  const [change, setChange] = useState(false)
+  const unlink = useMutation({
+    mutationFn: () => api("/api/cronometer", { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries(),
+  })
   const q = useQuery({ queryKey: ["sync"], queryFn: () => api<SyncStatus>("/api/sync") })
   const run = useMutation({
     mutationFn: () => post<SyncStatus>("/api/sync"),
@@ -275,8 +281,26 @@ function SyncCard({ demo }: { demo: boolean }) {
       <div className="flex items-center gap-2">
         <CloudCog className="size-4 text-mi" />
         <b className="text-[14px]">Cronometer</b>
-        {s && <Chip tone={demo ? "mi" : s.last_error ? "er" : "ok"}>{demo ? "demo" : s.last_error ? "errore" : "collegato"}</Chip>}
+        {s && <Chip tone={demo ? "mi" : !boot.cronometer.connected ? "wa" : s.last_error ? "er" : "ok"}>{demo ? "demo" : !boot.cronometer.connected ? "non collegato" : s.last_error ? "errore" : "collegato"}</Chip>}
       </div>
+      {!demo && boot.cronometer.connected && (
+        <div className="mt-2 flex items-center justify-between gap-2 text-[12px]">
+          <span className="truncate text-tx2">{boot.cronometer.username}</span>
+          <span className="flex gap-1.5">
+            <Button small onClick={() => setChange(!change)}>
+              Cambia account
+            </Button>
+            <Button small kind="ghost" busy={unlink.isPending} onClick={() => window.confirm("Scollegare Cronometer? Il diario resta su Cronometer, qui si ferma la sincronizzazione.") && unlink.mutate()}>
+              Scollega
+            </Button>
+          </span>
+        </div>
+      )}
+      {!demo && (change || !boot.cronometer.connected) && (
+        <div className="mt-3">
+          <CronometerForm initialEmail={boot.cronometer.username} onDone={() => setChange(false)} />
+        </div>
+      )}
       {s && (
         <div className="mt-2 text-[12px] text-tx2">
           <div className="flex justify-between border-t border-ln py-2">

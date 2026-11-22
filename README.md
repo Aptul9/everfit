@@ -21,10 +21,10 @@ The book corpus (`corpus/`) and the owner's story (`data/story.md`) are copyrigh
 | `android.yml` | APK lint and build; on `main`: signed with the existing key (installs over the old app), checked against `assetlinks.json`, published on servizi. |
 | `rollback.yml` | Previous release, or disable EverFit and remove its sslh route. |
 
-Secrets: `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `CRONOMETER_USERNAME`, `CRONOMETER_PASSWORD`, `CRONOMETER_TOTP_SECRET` (optional), `PRIVATE_DATA_KEY`, `ANDROID_KEYSTORE_B64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `SERVIZI_DOWNLOAD_SSH_KEY`, `SERVIZI_HOST`, `SERVIZI_KNOWN_HOSTS`.
+Secrets: `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `PRIVATE_DATA_KEY`, `ANDROID_KEYSTORE_B64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `SERVIZI_DOWNLOAD_SSH_KEY`, `SERVIZI_HOST`, `SERVIZI_KNOWN_HOSTS`.
 Variables: `OIDC_ISSUER`, `FIT_OWNER_EMAIL`, `PRIVATE_DATA_REPO`, `NUTRI_AGENT_MODEL` (optional).
 
-`ci/env.py` turns them into the env file the VM runs with; `ci/deploy.sh` checks its shape again. Nothing is typed on the VM.
+`ci/env.py` turns them into the env file the VM runs with; `ci/deploy.sh` checks its shape again. Nothing is typed on the VM. The Cronometer account is connected from the app (first start, or Settings): the server checks it with a real login and keeps it encrypted (AES-GCM, key from the server secret) in its volume.
 
 ## On the VM
 

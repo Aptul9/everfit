@@ -204,6 +204,7 @@ export type Bootstrap = {
   agent: boolean
   needs_profile: boolean
   has_weights: boolean
+  cronometer: { connected: boolean; username: string | null; demo: boolean }
 }
 
 export type SyncStatus = {

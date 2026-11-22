@@ -1,6 +1,7 @@
 """Write the protected Compose env file for the VM from the CI secrets and variables.
 
-Everything the server needs at runtime is a GitHub secret or variable; nothing is typed on the VM.
+Everything the server needs at runtime is a GitHub secret or variable; nothing is typed on the VM. The Cronometer
+account is not here: the owner connects it in the app, which keeps the credentials encrypted in its volume.
 Values are checked here and again by ci/deploy.sh, and never printed.
 """
 
@@ -22,13 +23,6 @@ def need(name: str) -> str:
     return value
 
 
-def quoted(name: str, value: str) -> str:
-    # single quotes: Compose takes the value literally, so a $ in a password stays a $
-    if "'" in value or "\n" in value or "\r" in value:
-        raise SystemExit(f"{name} contains a quote or a newline")
-    return f"{name}='{value}'"
-
-
 def lines() -> list[str]:
     issuer = need("OIDC_ISSUER")
     client_id = need("OIDC_CLIENT_ID")
@@ -45,12 +39,7 @@ def lines() -> list[str]:
         f"NUTRI_OIDC_CLIENT_ID={client_id}",
         f"NUTRI_OIDC_CLIENT_SECRET={secret}",
         f"NUTRI_OWNER_EMAIL={email}",
-        quoted("CRONOMETER_USERNAME", need("CRONOMETER_USERNAME")),
-        quoted("CRONOMETER_PASSWORD", need("CRONOMETER_PASSWORD")),
     ]
-    totp = os.environ.get("CRONOMETER_TOTP_SECRET", "").strip()
-    if totp:
-        out.append(quoted("CRONOMETER_TOTP_SECRET", totp))
     model = os.environ.get("NUTRI_AGENT_MODEL", "").strip()
     if model:
         if not MODEL.fullmatch(model):

@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from . import auth as auth_mod
 from . import config as config_mod
+from . import vault
 from .engine.settings import Phase, PhaseTemplate, Settings
 from .service import Coach, CoachError
 from .sources import Source
@@ -26,18 +27,46 @@ class App:
     def __init__(self, cfg: config_mod.Config, source: Source | None = None):
         self.cfg = cfg
         self.store = Store(cfg.data_dir / "nutri.db")
-        self.source = source or make_source(cfg)
+        self.source = source or make_source(cfg, self.store)
         self.syncer = Syncer(self.store, self.source)
         self.coach = Coach(self.store)
         self.agent = None
         self.push = None
 
+    def credentials(self) -> dict | None:
+        token = self.store.get("cronometer_credentials")
+        return vault.open_(self.cfg.secret, token) if token else None
 
-def make_source(cfg: config_mod.Config) -> Source:
+    def connect(self, credentials: dict) -> None:
+        """Check the credentials with a real login, then keep them encrypted and switch the source over."""
+        from .sources.cronometer import CronometerSource, check_login
+
+        check_login(credentials, self.cfg.data_dir)
+        self.store.put("cronometer_credentials", vault.seal(self.cfg.secret, credentials))
+        (self.cfg.data_dir / "cronometer-session.json").unlink(missing_ok=True)
+        self._switch(CronometerSource(self.cfg.data_dir, credentials))
+
+    def disconnect(self) -> None:
+        from .sources.cronometer import CronometerSource
+
+        self.store.x("delete from kv where key='cronometer_credentials'")
+        (self.cfg.data_dir / "cronometer-session.json").unlink(missing_ok=True)
+        self._switch(CronometerSource(self.cfg.data_dir, None))
+
+    def _switch(self, source: Source) -> None:
+        self.source = source
+        self.syncer.source = source
+        status = self.store.get("sync_status", {})
+        status.pop("last_pull", None)  # a new account starts with the full history
+        self.store.put("sync_status", status)
+
+
+def make_source(cfg: config_mod.Config, store: Store) -> Source:
     if cfg.source == "cronometer":
         from .sources.cronometer import CronometerSource
 
-        return CronometerSource(cfg.data_dir)
+        token = store.get("cronometer_credentials")
+        return CronometerSource(cfg.data_dir, vault.open_(cfg.secret, token) if token else None)
     from .sources.demo import DemoSource
 
     return DemoSource(cfg.today())
@@ -110,6 +139,12 @@ class WeekBody(BaseModel):
 class RepeatBody(BaseModel):
     source: date
     target: date
+
+
+class CronometerLogin(BaseModel):
+    username: str
+    password: str
+    totp: str | None = None
 
 
 class FoodImport(BaseModel):
@@ -189,6 +224,7 @@ def create_app(cfg: config_mod.Config | None = None, source: Source | None = Non
             "sync": state.syncer.status(),
             "agent": state.agent.available() if state.agent else False,
             "needs_profile": s.profile.height_cm is None or s.profile.birth_date is None,
+            "cronometer": cronometer_state(),
             "has_weights": bool(state.store.weights()),
         }
 
@@ -360,6 +396,41 @@ def create_app(cfg: config_mod.Config | None = None, source: Source | None = Non
     def food_prefs(food_id: str, body: FoodPrefs):
         state.store.update_food_prefs(food_id, **body.model_dump(exclude_unset=True))
         return dict(state.store.food(food_id))
+
+    def cronometer_state() -> dict:
+        return {
+            "connected": getattr(state.source, "connected", True),
+            "username": getattr(state.source, "username", None),
+            "demo": state.source.name == "demo",
+        }
+
+    @api.get("/api/cronometer", dependencies=guard)
+    def cronometer_get():
+        return cronometer_state()
+
+    @api.put("/api/cronometer", dependencies=guard)
+    async def cronometer_put(body: CronometerLogin):
+        if state.source.name == "demo":
+            raise HTTPException(400, "In modalità demo non si collega un account")
+        creds = {
+            "username": body.username.strip(),
+            "password": body.password,
+            "totp": (body.totp or "").strip() or None,
+        }
+        if not creds["username"] or not creds["password"]:
+            raise HTTPException(400, "Servono email e password")
+        try:
+            await asyncio.to_thread(state.connect, creds)
+        except Exception as exc:
+            log.warning("cronometer login failed: %s", type(exc).__name__)
+            raise HTTPException(400, f"Cronometer ha rifiutato l'accesso: {str(exc)[:200]}") from exc
+        asyncio.get_running_loop().create_task(asyncio.to_thread(state.syncer.run, today()))
+        return cronometer_state()
+
+    @api.delete("/api/cronometer", dependencies=guard)
+    def cronometer_delete():
+        state.disconnect()
+        return cronometer_state()
 
     @api.get("/api/sync", dependencies=guard)
     def sync_status():

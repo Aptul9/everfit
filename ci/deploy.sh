@@ -24,15 +24,13 @@ grep -Eq '^NUTRI_OIDC_ISSUER=https://[a-z0-9.-]+/application/o/[a-z0-9-]+/$' env
 grep -Eq '^NUTRI_OIDC_CLIENT_ID=[A-Za-z0-9._~-]+$' environment.new
 grep -Eq '^NUTRI_OIDC_CLIENT_SECRET=[A-Za-z0-9._~-]+$' environment.new
 grep -Eq '^NUTRI_OWNER_EMAIL=[^@[:space:]]+@[^@[:space:]]+$' environment.new
-grep -Eq "^CRONOMETER_USERNAME='[^']+'$" environment.new
-grep -Eq "^CRONOMETER_PASSWORD='[^']+'$" environment.new
 grep -qx "FIT_DATA_DIR=$DATA" environment.new
 if grep -q '^NUTRI_AUTH=\|^NUTRI_SOURCE=' environment.new; then
   echo 'environment.new must not switch sign-in or the data source off' >&2
   exit 1
 fi
-optional=$(grep -c "^CRONOMETER_TOTP_SECRET='[^']\+'$\|^NUTRI_AGENT_MODEL=[a-z0-9.-]\+$" environment.new || true)
-[[ $(wc -l < environment.new) -eq $((7 + optional)) ]]
+optional=$(grep -c '^NUTRI_AGENT_MODEL=[a-z0-9.-]\+$' environment.new || true)
+[[ $(wc -l < environment.new) -eq $((5 + optional)) ]]
 
 install -d -m 700 -o 10001 -g 10001 "$DATA"
 install -d -m 700 backups bin

@@ -39,6 +39,9 @@ class Syncer:
     def run(self, today: date, days_back: int | None = None) -> dict:
         """Push pending writes first, so the pull that follows already sees them."""
         with self._lock:
+            if not getattr(self.source, "connected", True):
+                self._set(last_error=None, connected=False)
+                return {"pushed": 0, **self.status()}
             pushed = self.push()
             if days_back is None:
                 days_back = 7 if self.store.get("sync_status", {}).get("last_pull") else 90
@@ -49,7 +52,12 @@ class Syncer:
                 while d <= today:
                     self.pull_day(d)
                     d += timedelta(days=1)
-                self._set(last_pull=now(), last_error=None, last_range=[start.isoformat(), today.isoformat()])
+                self._set(
+                    last_pull=now(),
+                    last_error=None,
+                    connected=True,
+                    last_range=[start.isoformat(), today.isoformat()],
+                )
             except Exception as exc:  # upstream API change or network: report, never crash the app
                 log.exception("sync failed")
                 self._set(last_error=f"{type(exc).__name__}: {exc}"[:300], last_error_at=now())
@@ -60,6 +68,8 @@ class Syncer:
             return self._push()
 
     def _push(self) -> int:
+        if not getattr(self.source, "connected", True):
+            return 0  # writes wait in the outbox until an account is connected
         done = 0
         touched: set[date] = set()
         for row in self.store.pending():

@@ -2,27 +2,38 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import clsx from "clsx"
 import { useState } from "react"
 import { useApp } from "../App"
+import CronometerForm from "../components/CronometerForm"
 import { Button, Card, Chip, Segmented, Spinner } from "../components/ui"
 import { api, post, put, type Phase, type PhaseTemplate, type Settings } from "../lib/api"
 import { n1, n2, signed } from "../lib/format"
 
 export default function Onboarding() {
   const { boot } = useApp()
-  const step = boot.needs_profile ? "profile" : "phase"
+  const step = !boot.cronometer.connected ? "cronometer" : boot.needs_profile ? "profile" : "phase"
   return (
     <div className="pt-safe animate-rise px-4 pb-10">
       <div className="mt-6 mb-5">
         <div className="mb-3 grid size-12 place-items-center rounded-[16px] bg-gradient-to-br from-ac2 to-mi">
           <img src="/icon-192.png" alt="" className="size-12 rounded-[16px]" />
         </div>
-        <h1 className="text-[26px] font-bold tracking-[-0.02em]">{step === "profile" ? "Due dati per partire" : "Scegli la fase"}</h1>
+        <h1 className="text-[26px] font-bold tracking-[-0.02em]">{step === "cronometer" ? "Collega Cronometer" : step === "profile" ? "Due dati per partire" : "Scegli la fase"}</h1>
         <p className="mt-1 text-[13px] text-tx2">
-          {step === "profile"
+          {step === "cronometer"
+            ? "Il diario resta su Cronometer: EverFit lo legge, stima il tuo metabolismo dal peso e ti prepara la giornata."
+            : step === "profile"
             ? "Servono solo per la prima stima del metabolismo: poi la correggono il tuo peso e il tuo diario."
             : "Il target parte dal metabolismo stimato e si aggiorna ogni settimana col check-in. Tutto si cambia dopo."}
         </p>
       </div>
-      {step === "profile" ? <ProfileStep settings={boot.settings} /> : <PhaseStep hasWeights={boot.has_weights} />}
+      {step === "cronometer" ? (
+        <Card>
+          <CronometerForm />
+        </Card>
+      ) : step === "profile" ? (
+        <ProfileStep settings={boot.settings} />
+      ) : (
+        <PhaseStep hasWeights={boot.has_weights} />
+      )}
     </div>
   )
 }

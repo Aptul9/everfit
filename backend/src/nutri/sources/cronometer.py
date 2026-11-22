@@ -6,6 +6,7 @@ in the outbox until they go through.
 """
 
 import logging
+import os
 import time
 from datetime import date
 from pathlib import Path
@@ -92,15 +93,49 @@ def _marked_complete(data: dict) -> bool | None:
     return None
 
 
+class NotConnected(RuntimeError):
+    pass
+
+
+def _use(credentials: dict) -> None:
+    # the client reads its credentials from the environment at login; this process serves one owner
+    os.environ["CRONOMETER_USERNAME"] = credentials["username"]
+    os.environ["CRONOMETER_PASSWORD"] = credentials["password"]
+    if credentials.get("totp"):
+        os.environ["CRONOMETER_TOTP_SECRET"] = credentials["totp"]
+    else:
+        os.environ.pop("CRONOMETER_TOTP_SECRET", None)
+
+
+def check_login(credentials: dict, data_dir: Path) -> None:
+    """Log in once with the given credentials; raises with Cronometer's own message when they are wrong."""
+    _use(credentials)
+    client = CronometerClient(session_path=data_dir / "cronometer-session.check.json")
+    try:
+        client.login()
+    finally:
+        (data_dir / "cronometer-session.check.json").unlink(missing_ok=True)
+
+
 class CronometerSource:
     name = "cronometer"
 
-    def __init__(self, data_dir: Path):
-        self.client = CronometerClient(session_path=data_dir / "cronometer-session.json")
+    def __init__(self, data_dir: Path, credentials: dict | None):
+        self.connected = credentials is not None
+        self.username = credentials["username"] if credentials else None
         self._foods: dict[int, dict] = {}
+        self.client = None
+        if credentials:
+            _use(credentials)
+            self.client = CronometerClient(session_path=data_dir / "cronometer-session.json")
+
+    def _c(self) -> CronometerClient:
+        if self.client is None:
+            raise NotConnected("Cronometer non è collegato: inserisci le credenziali nelle impostazioni")
+        return self.client
 
     def weights(self, start: date, end: date) -> dict[date, float]:
-        data = self.client.get_biometrics(WEIGHT_METRIC, KG_UNIT, start, end)
+        data = self._c().get_biometrics(WEIGHT_METRIC, KG_UNIT, start, end)
         out = {}
         for p in data.get("data", []) if isinstance(data, dict) else []:
             try:
@@ -112,13 +147,13 @@ class CronometerSource:
     def _foods_for(self, ids: list[int]) -> dict[int, dict]:
         missing = [i for i in ids if i not in self._foods]
         if missing:
-            for f in self.client.get_foods(missing):
+            for f in self._c().get_foods(missing):
                 if isinstance(f, dict) and f.get("id"):
                     self._foods[f["id"]] = f
         return {i: self._foods[i] for i in ids if i in self._foods}
 
     def diary(self, day: date) -> DayDiary:
-        data = self.client.get_diary(day)
+        data = self._c().get_diary(day)
         rows = [e for e in data.get("diary", []) if isinstance(e, dict) and e.get("type") == "Serving"]
         foods = self._foods_for(sorted({e["foodId"] for e in rows if isinstance(e.get("foodId"), int)}))
         infos = {fid: food_info(f) for fid, f in foods.items()}
@@ -143,7 +178,7 @@ class CronometerSource:
 
     def search(self, query: str) -> list[dict]:
         out = []
-        for f in self.client.search_food(query)[:25]:
+        for f in self._c().search_food(query)[:25]:
             out.append(
                 {
                     "cr_food_id": f.get("id"),
@@ -155,13 +190,13 @@ class CronometerSource:
         return out
 
     def food(self, cr_food_id: int) -> FoodInfo:
-        f = self.client.get_food(cr_food_id)
+        f = self._c().get_food(cr_food_id)
         self._foods[cr_food_id] = f
         return food_info(f)
 
     def add_serving(self, food: dict, grams: float, day: date, slot: str) -> str | None:
         amount = grams / 100 if food.get("unit_name") == "porzione" else grams
-        res = self.client.add_serving(
+        res = self._c().add_serving(
             food["cr_food_id"],
             food.get("measure_id"),
             amount,
@@ -174,7 +209,7 @@ class CronometerSource:
         return None if sid is None else str(sid)
 
     def delete_servings(self, serving_ids: list[str], day: date) -> None:
-        self.client.delete_entries(serving_ids, day)
+        self._c().delete_entries(serving_ids, day)
 
     def mark_complete(self, day: date, complete: bool) -> None:
-        self.client.mark_day_complete(day, complete)
+        self._c().mark_day_complete(day, complete)
