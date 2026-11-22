@@ -7,7 +7,7 @@ import { useApp } from "../App"
 import FoodPicker, { macrosFor, stepFor, type PickedFood } from "../components/FoodPicker"
 import { Bar, Button, Chip, ErrorBox, Sheet, Spinner, Stepper } from "../components/ui"
 import { ApiError, api, post, put, type Alternative, type FitReport, type Macros, type Meal, type Plan } from "../lib/api"
-import { longDay, n0, n1, SLOT_LABEL } from "../lib/format"
+import { longDay, n0, SLOT_LABEL } from "../lib/format"
 
 type EItem = {
   food_id: string
@@ -120,6 +120,7 @@ export default function PlanEditor() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["today"] })
+      qc.invalidateQueries({ queryKey: ["day", day] })
       qc.invalidateQueries({ queryKey: ["plan", day] })
       toast("Piano salvato")
       nav(-1)
@@ -211,7 +212,7 @@ export default function PlanEditor() {
                     <Stepper
                       value={it.grams}
                       step={it.step}
-                      label={it.unit_name === "porzione" ? `${n1(it.grams / 100)} p.` : undefined}
+                      {...(it.unit_name === "porzione" ? { factor: 100, unit: "p." } : {})}
                       onChange={(g) => updateItem(mi, ii, (x) => ({ ...x, grams: g }))}
                     />
                   </div>

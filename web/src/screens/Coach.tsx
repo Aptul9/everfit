@@ -220,6 +220,7 @@ function Proposal({ p }: { p: ProposalCard }) {
     onSuccess: () => {
       setStatus("applied")
       qc.invalidateQueries({ queryKey: ["today"] })
+      qc.invalidateQueries({ queryKey: ["day"] })
       qc.invalidateQueries({ queryKey: ["phase"] })
       qc.invalidateQueries({ queryKey: ["chat"] })
       toast(p.kind === "log" ? "Registrato su Cronometer" : p.kind === "plan" ? "Piano aggiornato" : "Fase aggiornata")

@@ -47,8 +47,8 @@ def test_bootstrap_and_today(client):
     assert b["demo"] and b["phase"]["template_id"] == "definizione"
     t = client.get("/api/today").json()
     assert t["targets"]["macros"]["kcal"] > 1500
-    meals = t["plan"]["meals"]
-    assert [m["slot"] for m in meals][:2] == ["colazione", "pranzo"]
+    meals = t["meals"]
+    assert [m["slot"] for m in meals] == ["colazione", "pranzo", "spuntino", "cena"]
     assert all(m["status"] == "planned" for m in meals)
     assert t["plan"]["report"]["within_tolerance"]
     assert t["consumed"]["kcal"] == 0
@@ -56,45 +56,68 @@ def test_bootstrap_and_today(client):
 
 def test_meal_eaten_as_planned_leaves_the_rest_alone(client):
     t = client.get("/api/today").json()
-    before = {m["slot"]: [i["grams"] for i in m["items"]] for m in t["plan"]["meals"]}
+    before = {m["slot"]: [i["grams"] for i in m["items"]] for m in t["meals"]}
     r = client.post(f"/api/plan/{t['day']}/meals/colazione/confirm", json={}).json()
-    after = {m["slot"]: [i["grams"] for i in m["items"]] for m in r["plan"]["meals"]}
+    after = {m["slot"]: [i["grams"] for i in m["items"]] for m in r["meals"]}
     assert after == before
+    assert all(i["state"] == "eaten" for i in r["meals"][0]["items"])
+
+
+def meal(view, slot):
+    return next(m for m in view["meals"] if m["slot"] == slot)
 
 
 def test_confirm_modify_skip_and_undo(client):
     t = client.get("/api/today").json()
     day = t["day"]
     r = client.post(f"/api/plan/{day}/meals/colazione/confirm", json={}).json()
-    assert r["plan"]["meals"][0]["status"] == "confirmed"
+    assert r["meals"][0]["status"] == "eaten"
     assert r["consumed"]["kcal"] > 200
 
-    lunch = next(m for m in r["plan"]["meals"] if m["slot"] == "pranzo")
+    lunch = meal(r, "pranzo")
     items = [{"food_id": i["food_id"], "grams": i["grams"]} for i in lunch["items"]]
     carb = next(i for i in lunch["items"] if i["role"] == "carb")
     for i in items:
         if i["food_id"] == carb["food_id"]:
             i["grams"] += 40
-    dinner_before = next(m for m in r["plan"]["meals"] if m["slot"] == "cena")["macros"]["kcal"]
+    dinner_before = meal(r, "cena")["macros"]["kcal"]
     r = client.post(f"/api/plan/{day}/meals/pranzo/confirm", json={"items": items}).json()
-    lunch = next(m for m in r["plan"]["meals"] if m["slot"] == "pranzo")
-    assert lunch["status"] == "modified"
-    dinner_after = next(m for m in r["plan"]["meals"] if m["slot"] == "cena")["macros"]["kcal"]
-    assert dinner_after < dinner_before  # the bigger lunch came off dinner
+    assert meal(r, "pranzo")["status"] == "eaten"
+    assert sorted(i["grams"] for i in meal(r, "pranzo")["items"]) == sorted(i["grams"] for i in items)
+    assert meal(r, "cena")["macros"]["kcal"] < dinner_before  # the bigger lunch came off dinner
 
     r = client.post(f"/api/plan/{day}/meals/spuntino/skip").json()
-    assert next(m for m in r["plan"]["meals"] if m["slot"] == "spuntino")["status"] == "skipped"
+    assert meal(r, "spuntino")["status"] == "skipped"
+    assert r["planned_remaining"]["kcal"] == meal(r, "cena")["planned"]["kcal"]
 
-    r = client.post(f"/api/plan/{day}/meals/pranzo/undo").json()
-    assert next(m for m in r["plan"]["meals"] if m["slot"] == "pranzo")["status"] == "planned"
+    r = client.post(f"/api/plan/{day}/meals/spuntino/undo").json()
+    assert meal(r, "spuntino")["status"] == "planned"
 
     r = client.post(f"/api/plan/{day}/meals/cena/confirm", json={}).json()
-    r = client.post(f"/api/plan/{day}/meals/pranzo/confirm", json={}).json()
+    r = client.post(f"/api/plan/{day}/meals/spuntino/confirm", json={}).json()
     sync = client.post("/api/sync").json()
     assert sync["pending"] == 0 and sync["failed"] == 0
     days = client.get("/api/history").json()["days"]
     today_row = next(d for d in days if d["day"] == day)
     assert today_row["marked"] is True and today_row["kcal"] > 1000
+
+
+def test_day_items_add_edit_delete_and_copy(client):
+    day = TODAY.isoformat()
+    r = client.post(
+        f"/api/day/{day}/meals/pranzo/items", json={"food_id": "demo:mela", "grams": 180, "eaten": True}
+    )
+    apple = next(i for i in meal(r.json(), "pranzo")["items"] if i["food_id"] == "demo:mela")
+    assert apple["state"] == "eaten" and apple["ref"].startswith("e:")
+    r = client.patch(f"/api/day/{day}/items/{apple['ref']}", json={"grams": 150}).json()
+    assert ("demo:mela", 150) in [(i["food_id"], i["grams"]) for i in meal(r, "pranzo")["items"]]
+    planned = next(i for i in meal(r, "cena")["items"] if i["state"] == "planned")
+    r = client.delete(f"/api/day/{day}/items/{planned['ref']}").json()
+    assert planned["ref"] not in {i["ref"] for i in meal(r, "cena")["items"]}
+    source = (TODAY - timedelta(days=2)).isoformat()
+    r = client.post(f"/api/day/{day}/copy", json={"source": source, "slots": ["cena"]}).json()
+    assert meal(r, "cena")["status"] == "planned"
+    assert client.post(f"/api/day/{day}/copy", json={"source": day}).status_code == 400
 
 
 def test_plan_editor_fit_swap_and_save(client):
@@ -132,7 +155,7 @@ def test_progress_history_templates(client):
     assert client.post("/api/templates/pin", json={"key": key, "mode": "fixed"}).json()["ok"]
     t = client.get("/api/today").json()
     slot = h["templates"][0]["slot"]
-    assert next(m for m in t["plan"]["meals"] if m["slot"] == slot)["locked"]
+    assert meal(t, slot)["locked"]
 
 
 def test_week_preview_and_apply(client):

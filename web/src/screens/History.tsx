@@ -1,19 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import clsx from "clsx"
-import { ChevronLeft, ChevronRight, Lock, Pin } from "lucide-react"
+import { ChevronLeft, ChevronRight, Copy, Lock, Pin } from "lucide-react"
 import { useState } from "react"
 import { useNavigate } from "react-router"
 import { useApp } from "../App"
 import { DayBars } from "../components/charts"
+import { CopySheet, DayMeals, DaySummary } from "../components/meals"
 import { Button, Card, Chip, ErrorBox, Header, Sheet, Spinner } from "../components/ui"
-import { api, post, type History as HistoryT, type HistoryDay, type TemplateInfo } from "../lib/api"
-import { addDays, longDay, n0, range, SLOT_LABEL, weekday } from "../lib/format"
-
-const monday = (s: string) => {
-  const d = new Date(s + "T12:00")
-  const wd = (d.getDay() + 6) % 7
-  return addDays(s, -wd)
-}
+import { api, post, type History as HistoryT, type HistoryDay, type TemplateInfo, type Today as TodayT } from "../lib/api"
+import { addDays, longDay, monday, n0, range, SLOT_LABEL, weekday } from "../lib/format"
 
 export default function History() {
   const { boot } = useApp()
@@ -98,59 +93,59 @@ function DayKcal({ d }: { d: HistoryDay }) {
 function DaySheet({ day, onClose }: { day: HistoryDay; onClose: () => void }) {
   const { boot, toast } = useApp()
   const qc = useQueryClient()
-  const nav = useNavigate()
+  const [copying, setCopying] = useState(false)
+  const q = useQuery({ queryKey: ["day", day.day], queryFn: () => api<TodayT>(`/api/today?day=${day.day}`) })
   const repeat = useMutation({
-    mutationFn: (target: string) => post("/api/plan/repeat", { source: day.day, target }),
-    onSuccess: (_, target) => {
-      qc.invalidateQueries({ queryKey: ["today"] })
-      toast(target === boot.today ? "Piano di oggi sostituito" : "Piano di domani pronto")
-      onClose()
-      nav(target === boot.today ? "/" : `/piano/modifica/${target}`)
+    mutationFn: (target: string) => post<TodayT>("/api/plan/repeat", { source: day.day, target }),
+    onSuccess: (data, target) => {
+      qc.setQueryData(["day", target], data)
+      if (target === boot.today) qc.setQueryData(["today"], data)
+      qc.invalidateQueries({ queryKey: ["history"] })
+      toast(`Copiato in ${target === boot.today ? "oggi" : "domani"}, stesse quantità: da confermare`)
     },
     onError: (e) => toast(e instanceof Error ? e.message : String(e)),
   })
+  const isToday = day.day === boot.today
+  const eaten = q.data ? q.data.meals.some((m) => m.count_eaten > 0) : day.meals.length > 0
   return (
     <Sheet
       open
       onClose={onClose}
-      title={<span className="first-letter:uppercase">{longDay(day.day)}</span>}
+      title={
+        <span className="flex items-center gap-2">
+          <span className="first-letter:uppercase">{longDay(day.day)}</span>
+          {isToday ? <Chip tone="mi">in corso</Chip> : day.future ? null : day.complete ? <Chip tone="ok">completo</Chip> : <Chip>incompleto</Chip>}
+        </span>
+      }
       footer={
-        day.meals.length > 0 && (
-          <div className="mb-1 flex gap-2">
-            <Button className="flex-1" small busy={repeat.isPending && repeat.variables === boot.today} onClick={() => repeat.mutate(boot.today)}>
-              Ripeti oggi
-            </Button>
-            <Button className="flex-1" small busy={repeat.isPending && repeat.variables !== boot.today} onClick={() => repeat.mutate(addDays(boot.today, 1))}>
-              Ripeti domani
-            </Button>
-          </div>
-        )
+        <div className="mb-1 flex flex-col gap-2">
+          {day.day < boot.today && eaten && (
+            <div className="flex gap-2">
+              <Button className="flex-1" small busy={repeat.isPending && repeat.variables === boot.today} onClick={() => repeat.mutate(boot.today)}>
+                Ripeti oggi
+              </Button>
+              <Button className="flex-1" small busy={repeat.isPending && repeat.variables !== boot.today} onClick={() => repeat.mutate(addDays(boot.today, 1))}>
+                Ripeti domani
+              </Button>
+            </div>
+          )}
+          <Button small kind="ghost" onClick={() => setCopying(true)}>
+            <Copy className="size-4" /> Copia da un giorno
+          </Button>
+        </div>
       }
     >
-      <div className="mb-2 flex items-center gap-2 text-[12px]">
-        <b className="text-[18px]">{n0(day.kcal)} kcal</b>
-        {day.macros && (
-          <span className="text-mu">
-            P {day.macros.protein} · C {day.macros.carbs} · G {day.macros.fat}
-          </span>
-        )}
-        <span className="ml-auto">{day.complete ? <Chip tone="ok">completo</Chip> : <Chip>incompleto</Chip>}</span>
-      </div>
-      {day.meals.length === 0 && <div className="py-8 text-center text-[13px] text-mu">Niente registrato</div>}
-      {day.meals.map((m) => (
-        <div key={m.slot} className="border-t border-ln py-2.5 first:border-t-0">
-          <div className="mb-1 flex justify-between text-[12px]">
-            <b className="text-[13px]">{m.label}</b>
-            <span className="text-mu">{n0(m.kcal)} kcal</span>
+      {q.isLoading && <Spinner />}
+      {q.error && <ErrorBox error={q.error} retry={() => q.refetch()} />}
+      {q.data && (
+        <>
+          <div className="mb-3 rounded-[22px] border border-ln bg-s1 p-4">
+            <DaySummary view={q.data} />
           </div>
-          {m.items.map((i, k) => (
-            <div key={k} className="flex justify-between text-[12px] text-tx2">
-              <span className="truncate">{i.name}</span>
-              <span className="ml-2 shrink-0 text-mu">{n0(i.grams)} g</span>
-            </div>
-          ))}
-        </div>
-      ))}
+          <DayMeals view={q.data} />
+        </>
+      )}
+      {copying && <CopySheet target={day.day} onClose={() => setCopying(false)} />}
     </Sheet>
   )
 }
