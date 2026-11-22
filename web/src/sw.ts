@@ -9,7 +9,7 @@ self.skipWaiting()
 clientsClaim()
 precacheAndRoute(self.__WB_MANIFEST)
 cleanupOutdatedCaches()
-registerRoute(new NavigationRoute(createHandlerBoundToURL("index.html"), { denylist: [/^\/api\//] }))
+registerRoute(new NavigationRoute(createHandlerBoundToURL("index.html"), { denylist: [/^\/api\//, /^\/oidc\//, /^\/\.well-known\//] }))
 
 self.addEventListener("push", (event) => {
   let data: { title?: string; body?: string; url?: string } = {}

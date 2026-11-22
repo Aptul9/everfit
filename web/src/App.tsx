@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import clsx from "clsx"
 import { CalendarDays, House, ListChecks, Sparkles, TrendingUp } from "lucide-react"
 import { createContext, useCallback, useContext, useEffect, useState } from "react"
@@ -30,6 +30,7 @@ const TABS = [
 ]
 
 export default function App() {
+  const qc = useQueryClient()
   const [unauth, setUnauth] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const toast = useCallback((m: string) => setMessage(m), [])
@@ -50,7 +51,7 @@ export default function App() {
   if (unauth || (auth.data && !auth.data.ok)) {
     return (
       <Shell>
-        <Login mode={auth.data?.mode ?? "oidc"} />
+        <Login mode={auth.data?.mode ?? "oidc"} onDone={() => { setUnauth(false); auth.refetch(); qc.invalidateQueries() }} />
       </Shell>
     )
   }

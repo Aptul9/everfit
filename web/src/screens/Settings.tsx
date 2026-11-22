@@ -153,7 +153,7 @@ function Account() {
         <b className="block truncate text-[14px]">{q.data.user.name}</b>
         <span className="text-[11.5px] text-mu">{q.data.user.email} · EverID</span>
       </div>
-      <Button small onClick={() => window.location.assign("/oidc/logout")}>
+      <Button small onClick={() => post("/api/auth/logout").then(() => window.location.assign("/"))}>
         Esci
       </Button>
     </Card>
