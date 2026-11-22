@@ -84,12 +84,11 @@ def _translation(food: dict) -> int:
 
 
 def _marked_complete(data: dict) -> bool | None:
-    for scope in (data, data.get("info") or {}):
-        if not isinstance(scope, dict):
-            continue
-        for key in ("complete", "completed", "dayComplete", "isComplete"):
-            if isinstance(scope.get(key), bool):
-                return scope[key]
+    """`info.complete` is True when the day was marked complete. False is also what every day never marked
+    returns, so it says nothing: the completeness threshold decides those days."""
+    info = data.get("info")
+    if isinstance(info, dict) and info.get("complete") is True:
+        return True
     return None
 
 
