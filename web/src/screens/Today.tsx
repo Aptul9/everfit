@@ -97,7 +97,6 @@ export default function Today() {
                 </Ring>
                 <div className="flex flex-1 flex-col gap-2 text-[12px]">
                   <Row label="Mangiato" value={n0(consumed.kcal)} />
-                  <Row label="Da piano" value={n0(planned.kcal)} muted />
                   <Row label="Target" value={n0(target.kcal)} />
                   <Row label="Metabolismo" value={`~${n0(t.expenditure.kcal)}`} />
                 </div>
@@ -153,11 +152,11 @@ export default function Today() {
   )
 }
 
-function Row({ label, value, muted }: { label: string; value: string; muted?: boolean }) {
+function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between">
       <span className="text-mu">{label}</span>
-      <b className={clsx("font-semibold", muted && "text-mu")}>{value}</b>
+      <b className="font-semibold">{value}</b>
     </div>
   )
 }
