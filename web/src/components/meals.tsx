@@ -60,7 +60,7 @@ export function MacroBars({ consumed, planned, target }: { consumed: Macros; pla
               <span>
                 <b>{n0(consumed[k])}</b>
                 <span className="text-mu"> / {n0(target[k])} g</span>
-                {over >= 1 && <b className="ml-1.5 text-wa">+{n0(over)}</b>}
+                {over >= 1 && <b className="ml-1.5" style={{ color: MACRO_COLORS[k] }}>+{n0(over)}</b>}
               </span>
             </div>
             <Bar
