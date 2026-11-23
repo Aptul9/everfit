@@ -3,7 +3,7 @@ import clsx from "clsx"
 import { useEffect, useState } from "react"
 import { useNavigate } from "react-router"
 import { useApp } from "../App"
-import { Button, Card, Chip, ErrorBox, Header, Segmented, Spinner } from "../components/ui"
+import { Button, Card, Chip, ErrorBox, Header, MACRO_COLORS, Segmented, Spinner } from "../components/ui"
 import { api, post, type Checkin as CheckinT, type CheckinPreview, type Macros } from "../lib/api"
 import { n0, range, rate, shortDay, signed } from "../lib/format"
 
@@ -121,7 +121,9 @@ function Diff({ from, to }: { from: Macros; to: Macros }) {
               {n0(to[k])}
               {u}
             </span>
-            <span className="w-10 text-right text-[11px] text-mu">{d ? signed(d) : "="}</span>
+            <span className="w-10 text-right text-[11px] text-mu" style={d && k !== "kcal" ? { color: MACRO_COLORS[k] } : undefined}>
+              {d ? signed(d) : "="}
+            </span>
           </div>
         )
       })}
