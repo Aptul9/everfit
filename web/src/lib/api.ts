@@ -82,6 +82,37 @@ export type PhaseTemplate = {
 
 export type Suggestion = { title: string; items: { food_id: string; grams: number }[]; macros: Macros; tag: string }
 
+/** A food in a meal of the day: eaten (in the diary, `ref` s:/e:) or planned (`ref` p:). */
+export type DayItem = {
+  ref: string
+  state: "eaten" | "planned" | "skipped"
+  pending: boolean
+  food_id: string
+  grams: number
+  planned_grams?: number | null
+  name: string
+  role: string
+  step: number
+  unit_g: number | null
+  unit_name: string | null
+  macros: Macros
+  per100: Macros
+}
+
+export type DayMeal = {
+  slot: string
+  label: string
+  status: "empty" | "planned" | "partial" | "eaten" | "skipped"
+  skipped: boolean
+  locked: boolean
+  items: DayItem[]
+  macros: Macros
+  eaten: Macros
+  planned: Macros
+  count_eaten: number
+  count: number
+}
+
 export type Today = {
   day: string
   phase: Phase | null
@@ -90,8 +121,9 @@ export type Today = {
   consumed: Macros
   planned_remaining: Macros
   remaining: Macros | null
-  plan: Plan | null
-  extra: { slot: string; name: string; grams: number; pending: boolean }[]
+  plan: { day: string; source: string; kind: string; target: Macros | null; report: FitReport | null }
+  meals: DayMeal[]
+  complete: boolean
   expenditure: { kcal: number; sd: number; status: "prior" | "data" }
   weight: { trend: number | null; rate_kg_week: number | null; spark: number[] }
   suggestions: Suggestion[]
@@ -302,3 +334,4 @@ export async function api<T>(path: string, init?: RequestInit & { json?: unknown
 export const post = <T,>(path: string, json?: unknown) => api<T>(path, { method: "POST", json: json ?? {} })
 export const put = <T,>(path: string, json: unknown) => api<T>(path, { method: "PUT", json })
 export const patch = <T,>(path: string, json: unknown) => api<T>(path, { method: "PATCH", json })
+export const del = <T,>(path: string) => api<T>(path, { method: "DELETE" })

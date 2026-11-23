@@ -140,6 +140,14 @@ class Store:
             self._recount(db, day.isoformat(), None, keep_mark=True)
             return cur.lastrowid
 
+    def delete_entry(self, entry_id: int) -> None:
+        with self.tx() as db:
+            row = db.execute("select day from diary_entries where id=?", (entry_id,)).fetchone()
+            if row is None:
+                return
+            db.execute("delete from diary_entries where id=?", (entry_id,))
+            self._recount(db, row["day"], None, keep_mark=True)
+
     def set_marked(self, day: date, value: bool | None) -> None:
         with self.tx() as db:
             self._recount(db, day.isoformat(), value, keep_mark=False)

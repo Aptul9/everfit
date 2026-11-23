@@ -153,32 +153,80 @@ export function Sheet({
   )
 }
 
+const raw = (v: number) => String(Math.round(v * 100) / 100).replace(".", ",")
+
+/** A number with − and +, and typeable: tap it, write, Enter (or leave the field) to commit.
+ * `factor` scales what is typed into the stored value (servings stored as 100 units each).
+ * `live` commits on every keystroke, for local state that shows a live preview. */
 export function Stepper({
   value,
   step,
   onChange,
   label,
   min = 0,
+  unit = "g",
+  factor = 1,
+  live,
+  large,
 }: {
   value: number
   step: number
   onChange: (v: number) => void
   label?: string
   min?: number
+  unit?: string
+  factor?: number
+  live?: boolean
+  large?: boolean
 }) {
+  const [draft, setDraft] = useState<string | null>(null)
+  const parse = (s: string) => {
+    const v = parseFloat(s.replace(",", "."))
+    return Number.isFinite(v) ? Math.max(min, v * factor) : null
+  }
+  const commit = () => {
+    if (draft == null) return
+    const v = parse(draft)
+    setDraft(null)
+    if (v != null && v !== value) onChange(v)
+  }
+  const btn = clsx("grid place-items-center text-tx active:text-ac disabled:opacity-30", large ? "h-12 w-12" : "h-9 w-8")
   return (
-    <div className="flex items-center rounded-xl border border-ln bg-s2">
-      <button
-        className="grid h-9 w-8 place-items-center text-tx active:text-ac disabled:opacity-30"
-        onClick={() => onChange(Math.max(min, value - step))}
-        disabled={value - step < min}
-        aria-label="Meno"
-      >
-        <Minus className="size-4" />
+    <div className={clsx("flex items-center rounded-xl border border-ln bg-s2", large && "rounded-2xl")}>
+      <button className={btn} onClick={() => onChange(Math.max(min, value - step))} disabled={value - step < min} aria-label="Meno">
+        <Minus className={large ? "size-5" : "size-4"} />
       </button>
-      <span className="min-w-[54px] text-center text-[13px] font-bold">{label ?? `${Math.round(value)} g`}</span>
-      <button className="grid h-9 w-8 place-items-center text-tx active:text-ac" onClick={() => onChange(value + step)} aria-label="Più">
-        <Plus className="size-4" />
+      <label className="flex items-baseline justify-center gap-1">
+        <input
+          inputMode="decimal"
+          enterKeyHint="done"
+          value={draft ?? label ?? raw(value / factor)}
+          onFocus={(e) => {
+            setDraft(raw(value / factor))
+            const el = e.currentTarget
+            requestAnimationFrame(() => el.select())
+          }}
+          onChange={(e) => {
+            setDraft(e.target.value)
+            if (live) {
+              const v = parse(e.target.value)
+              if (v != null) onChange(v)
+            }
+          }}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.currentTarget.blur()
+          }}
+          className={clsx(
+            "bg-transparent text-center font-bold outline-none",
+            large ? "w-[72px] text-right text-[24px] tracking-[-0.02em]" : label ? "w-[76px] text-[13px]" : "w-[44px] text-[13px]",
+          )}
+          aria-label={label ? "Valore" : `Quantità in ${unit}`}
+        />
+        {!label && <span className={clsx("text-mu", large ? "w-[52px] text-[14px]" : "-ml-1 pr-1 text-[11px]")}>{unit}</span>}
+      </label>
+      <button className={btn} onClick={() => onChange(value + step)} aria-label="Più">
+        <Plus className={large ? "size-5" : "size-4"} />
       </button>
     </div>
   )

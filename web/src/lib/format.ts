@@ -37,6 +37,11 @@ export const weekday = (s: string) => wdFmt.format(parseDay(s)).replace(".", "")
 
 export const range = (a: string, b: string) => `${parseDay(a).getDate()} – ${shortDay(b)}`
 
+export const monday = (s: string) => addDays(s, -((parseDay(s).getDay() + 6) % 7))
+
+const wdLongFmt = new Intl.DateTimeFormat("it-IT", { weekday: "long" })
+export const weekdayLong = (s: string) => wdLongFmt.format(parseDay(s))
+
 export const grams = (g: number, unitG?: number | null, unitName?: string | null) => {
   if (unitG && unitName && unitName !== "porzione") {
     const units = g / unitG
@@ -61,4 +66,10 @@ export const SLOT_LABEL: Record<string, string> = {
   pranzo: "Pranzo",
   spuntino: "Spuntino",
   cena: "Cena",
+}
+
+/** The meal of this hour of the day. */
+export const slotNow = () => {
+  const h = new Date().getHours()
+  return h < 11 ? "colazione" : h < 15 ? "pranzo" : h < 19 ? "spuntino" : "cena"
 }

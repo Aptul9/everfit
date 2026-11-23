@@ -92,6 +92,22 @@ def seed_demo(app: App) -> None:
 
 class ItemsBody(BaseModel):
     items: list[dict] | None = None
+    refs: list[str] | None = None
+
+
+class AddBody(BaseModel):
+    food_id: str
+    grams: float
+    eaten: bool = False
+
+
+class GramsBody(BaseModel):
+    grams: float
+
+
+class CopyBody(BaseModel):
+    source: date
+    slots: list[str] | None = None
 
 
 class MealsBody(BaseModel):
@@ -234,35 +250,57 @@ def create_app(cfg: config_mod.Config | None = None, source: Source | None = Non
 
     @api.post("/api/plan/{day}/meals/{slot}/confirm", dependencies=guard)
     async def confirm(day: str, slot: str, body: ItemsBody):
-        c.confirm_meal(date.fromisoformat(day), slot, today(), body.items)
+        d = date.fromisoformat(day)
+        if body.items is not None:
+            out = c.confirm_meal(d, slot, today(), body.items)
+        else:
+            out = c.confirm_items(d, slot, today(), body.refs)
         kick(state)
-        return c.today(date.fromisoformat(day), today())
+        return out
 
     @api.post("/api/plan/{day}/meals/{slot}/skip", dependencies=guard)
     def skip(day: str, slot: str):
-        c.skip_meal(date.fromisoformat(day), slot, today())
+        out = c.skip_meal(date.fromisoformat(day), slot, today())
         kick(state)
-        return c.today(date.fromisoformat(day), today())
+        return out
 
     @api.post("/api/plan/{day}/meals/{slot}/undo", dependencies=guard)
     def undo(day: str, slot: str):
-        c.undo_meal(date.fromisoformat(day), slot, today())
+        out = c.undo_meal(date.fromisoformat(day), slot, today())
         kick(state)
-        return c.today(date.fromisoformat(day), today())
+        return out
 
     @api.post("/api/plan/{day}/extra", dependencies=guard)
     def extra(day: str, body: ExtraBody):
-        c.log_extra(date.fromisoformat(day), body.slot, body.food_id, body.grams)
+        out = c.add_item(date.fromisoformat(day), body.slot, body.food_id, body.grams, today(), eaten=True)
         kick(state)
-        return c.today(date.fromisoformat(day), today())
+        return out
+
+    @api.post("/api/day/{day}/meals/{slot}/items", dependencies=guard)
+    async def add_item(day: str, slot: str, body: AddBody):
+        out = c.add_item(date.fromisoformat(day), slot, body.food_id, body.grams, today(), body.eaten)
+        kick(state)
+        return out
+
+    @api.patch("/api/day/{day}/items/{ref}", dependencies=guard)
+    async def update_item(day: str, ref: str, body: GramsBody):
+        out = c.update_item(date.fromisoformat(day), ref, body.grams, today())
+        kick(state)
+        return out
+
+    @api.delete("/api/day/{day}/items/{ref}", dependencies=guard)
+    async def delete_item(day: str, ref: str):
+        out = c.delete_item(date.fromisoformat(day), ref, today())
+        kick(state)
+        return out
+
+    @api.post("/api/day/{day}/copy", dependencies=guard)
+    def copy_meals(day: str, body: CopyBody):
+        return c.copy_meals(body.source, date.fromisoformat(day), body.slots, today())
 
     @api.get("/api/plan/{day}", dependencies=guard)
     def get_plan(day: str):
-        d = date.fromisoformat(day)
-        plan = c.plan(d, today())
-        if plan is None:
-            raise HTTPException(404, "nessun piano")
-        return {**plan, "meals": c.meal_views(plan["meals"])}
+        return c.plan_view(date.fromisoformat(day), today())
 
     @api.post("/api/plan/{day}/fit", dependencies=guard)
     def fit(day: str, body: MealsBody):
@@ -270,18 +308,17 @@ def create_app(cfg: config_mod.Config | None = None, source: Source | None = Non
 
     @api.put("/api/plan/{day}", dependencies=guard)
     def put_plan(day: str, body: MealsBody):
-        plan = c.save_plan(date.fromisoformat(day), body.meals)
-        return {**plan, "meals": c.meal_views(plan["meals"])}
+        c.save_plan(date.fromisoformat(day), body.meals)
+        return c.plan_view(date.fromisoformat(day), today())
 
     @api.post("/api/plan/{day}/rebuild", dependencies=guard)
     def rebuild(day: str):
-        plan = c.build_plan(date.fromisoformat(day), today())
-        return {**plan, "meals": c.meal_views(plan["meals"])}
+        c.build_plan(date.fromisoformat(day), today())
+        return c.plan_view(date.fromisoformat(day), today())
 
     @api.post("/api/plan/repeat", dependencies=guard)
     def repeat(body: RepeatBody):
-        plan = c.repeat_day(body.source, body.target, today())
-        return {**plan, "meals": c.meal_views(plan["meals"])}
+        return c.repeat_day(body.source, body.target, today())
 
     @api.post("/api/foods/alternatives", dependencies=guard)
     def alternatives(body: SwapBody):

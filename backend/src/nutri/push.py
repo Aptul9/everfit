@@ -70,8 +70,8 @@ class Push:
                 sent[key_c] = True
         key_m = f"meals:{today.isoformat()}"
         if now.hour >= p["meals_hour"] and key_m not in sent:
-            plan = self.store.plan(today)
-            left = [m for m in (plan or {}).get("meals", []) if m["status"] == "planned"]
+            plan = coach.plan(today, today)
+            left = [m for m in plan["meals"] if m["items"] and not m["skipped"]]
             if left:
                 names = ", ".join(m["slot"] for m in left)
                 self.send("Pasti da confermare", f"Mancano: {names}. Conferma o regola i grammi.", "/")

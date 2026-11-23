@@ -293,7 +293,6 @@ class Agent:
         if name == "oggi":
             d = date.fromisoformat(args["day"]) if args.get("day") else today
             v = c.today(d, today)
-            plan = v.get("plan") or {}
             return {
                 k: v[k]
                 for k in (
@@ -304,7 +303,6 @@ class Agent:
                     "remaining",
                     "expenditure",
                     "weight",
-                    "extra",
                 )
             } | {
                 "meals": [
@@ -313,11 +311,17 @@ class Agent:
                         "status": m["status"],
                         "kcal": m["macros"]["kcal"],
                         "items": [
-                            {"food_id": i["food_id"], "name": i["name"], "grams": i["grams"]}
+                            {
+                                "ref": i["ref"],
+                                "state": i["state"],
+                                "food_id": i["food_id"],
+                                "name": i["name"],
+                                "grams": i["grams"],
+                            }
                             for i in m["items"]
                         ],
                     }
-                    for m in plan.get("meals", [])
+                    for m in v["meals"]
                 ]
             }, None
         if name == "progressi":
@@ -611,7 +615,7 @@ class Agent:
         if kind == "log":
             d = date.fromisoformat(p["day"])
             for i in p["items"]:
-                self.coach.log_extra(d, p["slot"], i["food_id"], i["grams"])
+                self.coach.log_extra(d, p["slot"], i["food_id"], i["grams"], today)
         elif kind == "phase":
             if p.get("template_id"):
                 self.coach.start_phase(p["template_id"], today, p.get("changes") or None)

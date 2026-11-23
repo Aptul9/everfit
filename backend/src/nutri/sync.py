@@ -80,8 +80,21 @@ class Syncer:
                     food = self.store.food(p["food_id"])
                     if food is None:
                         raise RuntimeError(f"alimento {p['food_id']} sconosciuto")
-                    self.source.add_serving(dict(food), p["grams"], day, p["slot"])
-                    if p.get("entry_id"):
+                    sid = self.source.add_serving(dict(food), p["grams"], day, p["slot"])
+                    if p.get("entry_id") and sid:
+                        # the entry stays in the diary until the pull brings Cronometer's copy, and a view
+                        # loaded before the push still finds it by its old reference
+                        self.store.x(
+                            "update diary_entries set serving_id=?, pending=0 where id=? and pending=1",
+                            sid,
+                            p["entry_id"],
+                        )
+                        self.store.x(
+                            "update outbox set payload=? where id=?",
+                            json.dumps({**p, "serving_id": sid}),
+                            row["id"],
+                        )
+                    elif p.get("entry_id"):
                         self.store.x("delete from diary_entries where id=? and pending=1", p["entry_id"])
                 elif row["kind"] == "delete_servings":
                     self.source.delete_servings(p["serving_ids"], day)
