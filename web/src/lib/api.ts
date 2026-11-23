@@ -296,10 +296,27 @@ export type ProposalCard = {
   current?: Phase | null
 }
 
+/** What a coach action changed on a day, food by food, with the id to undo it. */
+export type ActionReceipt = {
+  action_id: number
+  status: "done" | "undone"
+  day: string
+  title: string
+  changes: {
+    slot: string
+    kind: "add" | "remove" | "grams" | "eaten" | "skipped" | "planned"
+    state: "eaten" | "planned" | "skipped"
+    name: string
+    grams: number
+    from: number | null
+  }[]
+}
+
 export type ChatEntry =
   | { role: "user"; text: string; at?: string }
   | { role: "assistant"; text: string; tools?: string[]; at?: string }
   | { role: "proposal"; proposal: ProposalCard }
+  | { role: "action"; action: ActionReceipt }
 
 export class ApiError extends Error {
   status: number

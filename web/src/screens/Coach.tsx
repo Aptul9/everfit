@@ -1,16 +1,21 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import clsx from "clsx"
-import { ArrowRight, ChevronLeft, Loader2, RotateCcw, Sparkles } from "lucide-react"
+import { ArrowRight, Check, ChevronLeft, Loader2, RotateCcw, Sparkles, Undo2 } from "lucide-react"
 import { Fragment, type ReactNode, useEffect, useRef, useState } from "react"
 import { useNavigate } from "react-router"
 import { useApp } from "../App"
 import { Button, Chip } from "../components/ui"
-import { api, post, type ChatEntry, type ProposalCard } from "../lib/api"
-import { n0, n2, SLOT_LABEL } from "../lib/format"
+import { api, post, type ActionReceipt, type ChatEntry, type ProposalCard } from "../lib/api"
+import { longDay, n0, n2, SLOT_LABEL } from "../lib/format"
 
-const CHIPS = ["Cosa mangio stasera?", "Fammi il piano per domani", "Perché il peso è fermo?", "Cosa dice Biasci sulle proteine?", "Come sta andando questa settimana?"]
+const CHIPS = ["Oggi come ieri", "Cosa mangio stasera?", "Fammi il piano per domani", "Perché il peso è fermo?", "Cosa dice Biasci sulle proteine?", "Come sta andando questa settimana?"]
 
-type Live = { text: string; tools: string[]; proposals: ProposalCard[]; error?: string }
+type Live = { text: string; tools: string[]; proposals: ProposalCard[]; actions: ActionReceipt[]; error?: string }
+
+/** A change made by the coach or undone: every screen showing a day reloads it. */
+const refreshDays = (qc: QueryClient) => {
+  for (const key of ["today", "day", "history", "sync"]) qc.invalidateQueries({ queryKey: [key] })
+}
 
 export default function Coach() {
   const { boot } = useApp()
@@ -39,7 +44,7 @@ export default function Coach() {
     if (!msg || pending) return
     setInput("")
     setPending(msg)
-    const state: Live = { text: "", tools: [], proposals: [] }
+    const state: Live = { text: "", tools: [], proposals: [], actions: [] }
     setLive({ ...state })
     try {
       const res = await fetch("/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ message: msg }), credentials: "same-origin" })
@@ -61,6 +66,10 @@ export default function Coach() {
           if (ev.type === "text") state.text += ev.text
           else if (ev.type === "tool") state.tools = [...state.tools, ev.label]
           else if (ev.type === "proposal") state.proposals = [...state.proposals, ev.proposal]
+          else if (ev.type === "action") {
+            state.actions = [...state.actions, ev.action]
+            refreshDays(qc)
+          }
           else if (ev.type === "error") state.error = ev.message
           setLive({ ...state })
         }
@@ -70,6 +79,7 @@ export default function Coach() {
       setLive({ ...state })
     }
     await qc.invalidateQueries({ queryKey: ["chat"] })
+    if (state.actions.length) refreshDays(qc) // the outbox was pushed at the end of the turn
     setPending(null)
     setLive(state.error ? state : null)
   }
@@ -105,7 +115,9 @@ export default function Coach() {
           <div className="mt-6 text-center">
             <div className="mx-auto mb-3 grid size-14 place-items-center rounded-[20px] bg-gradient-to-br from-ac2 to-mi text-bg"><Sparkles className="size-7" /></div>
             <b className="text-[15px]">Chiedimi qualcosa</b>
-            <p className="mx-auto mt-1 max-w-[280px] text-[12.5px] text-mu">Leggo il tuo diario e il libro, i numeri li calcola il motore. Ogni modifica arriva come scheda da confermare.</p>
+            <p className="mx-auto mt-1 max-w-[290px] text-[12.5px] text-mu">
+              Leggo il tuo diario e il libro, i numeri li calcola il motore. Sui pasti agisco subito e puoi annullare; fase e target arrivano come scheda da confermare.
+            </p>
           </div>
         )}
         {entries.map((e, i) => (
@@ -117,6 +129,9 @@ export default function Coach() {
             {live && (
               <>
                 {live.tools.length > 0 && <Tools tools={live.tools} />}
+                {live.actions.map((a) => (
+                  <Receipt key={a.action_id} a={a} />
+                ))}
                 {live.text ? <Bubble>{renderMd(live.text)}</Bubble> : !live.error && <Typing />}
                 {live.proposals.map((p) => (
                   <Proposal key={p.proposal_id} p={p} />
@@ -170,6 +185,7 @@ export default function Coach() {
 function Entry({ e }: { e: ChatEntry }) {
   if (e.role === "user") return <Bubble me>{e.text}</Bubble>
   if (e.role === "proposal") return <Proposal p={e.proposal} />
+  if (e.role === "action") return <Receipt a={e.action} />
   return (
     <>
       {e.tools && e.tools.length > 0 && <Tools tools={e.tools} />}
@@ -281,6 +297,73 @@ function Proposal({ p }: { p: ProposalCard }) {
           </Button>
           <Button small className="flex-1" busy={dismiss.isPending} onClick={() => dismiss.mutate()}>
             Annulla
+          </Button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+const CHANGE_MARK: Record<ActionReceipt["changes"][number]["kind"], string> = { add: "+", remove: "−", grams: "", eaten: "✓", skipped: "", planned: "↺" }
+
+/** What the coach just did on a day, compact, with Annulla putting the day back as it was. */
+function Receipt({ a }: { a: ActionReceipt }) {
+  const qc = useQueryClient()
+  const { boot, toast } = useApp()
+  const [status, setStatus] = useState(a.status)
+  const [open, setOpen] = useState(false)
+  const undo = useMutation({
+    mutationFn: () => post(`/api/actions/${a.action_id}/undo`),
+    onSuccess: () => {
+      setStatus("undone")
+      refreshDays(qc)
+      qc.invalidateQueries({ queryKey: ["chat"] })
+      toast("Annullato: la giornata è tornata com'era")
+    },
+    onError: (e) => toast(e instanceof Error ? e.message : String(e)),
+  })
+  const slots = [...new Set(a.changes.map((c) => c.slot))]
+  const shown = open ? slots : slots.slice(0, 4)
+  return (
+    <div className={clsx("mb-2.5 max-w-[92%] animate-rise rounded-2xl border p-3", status === "undone" ? "border-ln bg-s1 opacity-60" : "border-mi/30 bg-mi/[0.06]")}>
+      <div className="flex items-start justify-between gap-2">
+        <span className="flex min-w-0 items-start gap-2">
+          <span className={clsx("mt-px grid size-[18px] shrink-0 place-items-center rounded-full", status === "undone" ? "bg-s3 text-mu" : "bg-mi/20 text-mi")}>
+            {status === "undone" ? <Undo2 className="size-3" /> : <Check className="size-3" strokeWidth={3} />}
+          </span>
+          <b className={clsx("text-[12.5px] leading-snug", status === "undone" && "line-through")}>{a.title}</b>
+        </span>
+        {status === "undone" ? <Chip>annullato</Chip> : <Chip tone="mi">fatto</Chip>}
+      </div>
+      {a.day !== boot.today && <div className="mt-0.5 pl-[26px] text-[10.5px] text-mu first-letter:uppercase">{longDay(a.day)}</div>}
+      <div className="mt-1.5 grid gap-1 pl-[26px] text-[11.5px] leading-snug text-tx2">
+        {a.changes.length === 0 && <span className="text-mu">Niente da cambiare</span>}
+        {shown.map((s) => (
+          <div key={s}>
+            <span className="text-mu">{SLOT_LABEL[s] ?? s}</span>{" "}
+            {a.changes
+              .filter((c) => c.slot === s)
+              .map((c, k) => (
+                <span key={k}>
+                  {k > 0 && <span className="text-mu"> · </span>}
+                  {CHANGE_MARK[c.kind] && <b className={c.kind === "remove" ? "text-er" : c.kind === "eaten" ? "text-mi" : "text-ac"}>{CHANGE_MARK[c.kind]} </b>}
+                  <span className={clsx(c.kind === "remove" || c.kind === "skipped" ? "line-through text-mu" : "")}>{c.name}</span>{" "}
+                  <b className="font-semibold text-tx">{c.kind === "grams" ? `${n0(c.from)} → ${n0(c.grams)} g` : `${n0(c.grams)} g`}</b>
+                  {c.kind === "add" && <span className="text-mu">{c.state === "eaten" ? " mangiato" : " da confermare"}</span>}
+                </span>
+              ))}
+          </div>
+        ))}
+        {slots.length > shown.length && (
+          <button onClick={() => setOpen(true)} className="text-left text-[11px] text-mu">
+            altri {slots.length - shown.length} pasti…
+          </button>
+        )}
+      </div>
+      {status === "done" && (
+        <div className="mt-2 pl-[26px]">
+          <Button small kind="secondary" busy={undo.isPending} onClick={() => undo.mutate()}>
+            <Undo2 className="size-3.5" /> Annulla
           </Button>
         </div>
       )}

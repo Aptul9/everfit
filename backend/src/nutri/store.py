@@ -40,6 +40,9 @@ create table if not exists outbox (
 create table if not exists proposals (
     id integer primary key autoincrement, created text, kind text not null, payload text not null,
     status text not null default 'open');
+create table if not exists actions (
+    id integer primary key autoincrement, created text, day text not null, receipt text not null,
+    before text not null, after text not null, status text not null default 'done');
 create table if not exists chat (
     id integer primary key autoincrement, created text, role text not null, content text not null);
 create table if not exists push_subs (endpoint text primary key, sub text not null);

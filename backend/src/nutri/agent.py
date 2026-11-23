@@ -1,14 +1,16 @@
 """The coach in the chat.
 
 The model reads data, runs the engine and explains. It never does arithmetic
-itself, and it never writes: every change (a phase, a plan, a diary entry)
-comes back as a proposal card the owner confirms.
+itself. On meals and foods it acts: the change runs at once and comes back as a
+receipt the owner can undo. A phase, the targets or a whole-day plan still come
+back as a proposal card the owner confirms.
 """
 
 import asyncio
 import json
 import logging
 from datetime import date, timedelta
+from functools import partial
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -18,7 +20,7 @@ from .book import Book
 from .engine.plan import Item, Meal, fit_day, totals
 from .engine.targets import Macros
 from .llm import Final, Messages
-from .service import CoachError, macros_dict
+from .service import SLOT_LABEL, CoachError, macros_dict
 from .store import now
 
 log = logging.getLogger(__name__)
@@ -33,9 +35,17 @@ in modo diretto e concreto, come un amico competente: frasi brevi, niente elench
 Regole che non si negoziano:
 - I numeri (calorie, macro, grammi, ritmi, metabolismo) li ottieni SOLO dagli strumenti. Non fare conti a \
 mente: se ti serve un totale o una porzione usa calcola_pasto o macro_di.
-- Non scrivi mai niente direttamente. Ogni modifica (registrare cibo, cambiare fase o target, cambiare il \
-piano) la proponi con lo strumento proponi_*: l'utente vede una scheda e conferma lui. Dopo una proposta \
-dillo in una riga, senza ripetere i numeri della scheda.
+- Sui pasti e sugli alimenti agisci, non consigli: aggiungi, cambi grammi, elimini, segni mangiato, salti, \
+copi pasti da un giorno all'altro con gli strumenti diretti. L'app mostra sotto ogni azione una ricevuta \
+con Annulla, quindi non chiedere conferma prima.
+- Quando l'utente chiede una cosa precisa falla alla lettera: stessi alimenti, stessi grammi, nessun \
+ricalcolo, niente calcola_pasto, niente consigli che non ha chiesto. "Fai che oggi sia come ieri" è \
+copia_pasti da ieri a oggi, non una lista di cose da aggiungere.
+- Dopo un'azione rispondi con una sola riga breve su cosa hai fatto, senza ripetere la ricevuta.
+- Per cambiare o togliere un alimento usa il ref che ti dà lo strumento oggi (anche per altri giorni).
+- Le date le ricavi tu da oggi: ieri, domani, mercoledì scorso diventano YYYY-MM-DD.
+- Fase, target e piano dell'intera giornata restano proposte: proponi_fase e proponi_piano mostrano una \
+scheda che l'utente conferma. Dopo una proposta dillo in una riga, senza ripetere i numeri della scheda.
 - La storia dell'utente (sotto) vale più di qualsiasi deduzione dai numeri. Dove dice DA COMPILARE è un \
 buco: chiedi, non riempirlo.
 - Il metodo è quello del libro Project Nutrition di Andrea Biasci (2016). Quando citi il libro usa la \
@@ -50,7 +60,7 @@ mostra già quali strumenti hai usato.
 - Niente diagnosi mediche. Davanti a segnali di disturbo alimentare, sintomi o esami alterati, consiglia \
 un medico.
 
-Oggi è {today}. Fonte dati: {source}.
+Oggi è {weekday} {today}. Fonte dati: {source}.
 
 # Storia dell'utente (data/story.md)
 
@@ -71,10 +81,21 @@ TOOL_LABELS = {
     "indice_libro": "indice del libro",
     "pagine_libro": "libro letto",
     "metodo": "metodo letto",
-    "proponi_registrazione": "proposta preparata",
     "proponi_fase": "proposta preparata",
     "proponi_piano": "proposta preparata",
+    "aggiungi_alimento": "alimento aggiunto",
+    "modifica_grammi": "grammi cambiati",
+    "elimina_alimento": "alimento tolto",
+    "segna_mangiato": "segnato come mangiato",
+    "salta_pasto": "pasto saltato",
+    "ripristina_pasto": "pasto ripristinato",
+    "copia_pasti": "pasti copiati",
 }
+
+WEEKDAYS = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato", "domenica"]
+SLOTS = ["colazione", "pranzo", "spuntino", "cena"]
+DAY = {"type": "string", "description": "YYYY-MM-DD; se manca, oggi"}
+SLOT = {"type": "string", "enum": SLOTS}
 
 ITEM = {
     "type": "object",
@@ -84,10 +105,80 @@ ITEM = {
 TOOLS = [
     {
         "name": "oggi",
-        "description": "Target, mangiato, rimanente e piano della giornata.",
+        "description": "Una giornata: target, mangiato, rimanente e i quattro pasti con gli alimenti. Ogni "
+        "alimento ha ref (per modificarlo o toglierlo), state (eaten = mangiato e su Cronometer, planned = da "
+        "piano, skipped = saltato) e grammi.",
+        "input_schema": {"type": "object", "properties": {"day": DAY}},
+    },
+    {
+        "name": "aggiungi_alimento",
+        "description": "Aggiunge un alimento a un pasto, subito. eaten true se l'ha già mangiato (va su "
+        "Cronometer), false per metterlo nel piano da confermare. food_id da cerca_alimento.",
         "input_schema": {
             "type": "object",
-            "properties": {"day": {"type": "string", "description": "YYYY-MM-DD"}},
+            "properties": {
+                "day": DAY,
+                "slot": SLOT,
+                "food_id": {"type": "string"},
+                "grams": {"type": "number"},
+                "eaten": {"type": "boolean"},
+            },
+            "required": ["slot", "food_id", "grams", "eaten"],
+        },
+    },
+    {
+        "name": "modifica_grammi",
+        "description": "Cambia i grammi di un alimento (ref da oggi). Se era già su Cronometer, lì viene "
+        "sostituito con i nuovi grammi.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"day": DAY, "ref": {"type": "string"}, "grams": {"type": "number"}},
+            "required": ["ref", "grams"],
+        },
+    },
+    {
+        "name": "elimina_alimento",
+        "description": "Toglie un alimento (ref da oggi): dal piano, o dal diario e da Cronometer se mangiato.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"day": DAY, "ref": {"type": "string"}},
+            "required": ["ref"],
+        },
+    },
+    {
+        "name": "segna_mangiato",
+        "description": "Segna come mangiati gli alimenti da piano di un pasto, con i loro grammi: vanno su "
+        "Cronometer. Senza refs tutto quello che resta del pasto.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"day": DAY, "slot": SLOT, "refs": {"type": "array", "items": {"type": "string"}}},
+            "required": ["slot"],
+        },
+    },
+    {
+        "name": "salta_pasto",
+        "description": "Il resto di un pasto non si mangia; il resto della giornata si adegua.",
+        "input_schema": {"type": "object", "properties": {"day": DAY, "slot": SLOT}, "required": ["slot"]},
+    },
+    {
+        "name": "ripristina_pasto",
+        "description": "Rimette da mangiare un pasto saltato.",
+        "input_schema": {"type": "object", "properties": {"day": DAY, "slot": SLOT}, "required": ["slot"]},
+    },
+    {
+        "name": "copia_pasti",
+        "description": "Copia nel giorno target quello che è stato mangiato nel giorno source, stessi alimenti "
+        "e stessi grammi, senza ricalcoli: è anche 'oggi come ieri' o 'ripeti martedì'. I copiati vanno da "
+        "confermare; nei pasti del target il piano viene sostituito e gli alimenti già mangiati restano. "
+        "Senza slots copia tutti i pasti.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "source": {"type": "string", "description": "YYYY-MM-DD"},
+                "target": DAY,
+                "slots": {"type": "array", "items": SLOT},
+            },
+            "required": ["source"],
         },
     },
     {
@@ -191,20 +282,6 @@ TOOLS = [
         "input_schema": {"type": "object", "properties": {"name": {"type": "string"}}},
     },
     {
-        "name": "proponi_registrazione",
-        "description": "Propone di registrare alimenti su Cronometer.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "slot": {"type": "string", "enum": ["colazione", "pranzo", "spuntino", "cena"]},
-                "items": {"type": "array", "items": ITEM},
-                "day": {"type": "string"},
-                "summary": {"type": "string"},
-            },
-            "required": ["slot", "items", "summary"],
-        },
-    },
-    {
         "name": "proponi_fase",
         "description": "Propone di cambiare fase (template_id e date) o parametri della "
         "fase attiva (changes: kcal_target, rate_kg_week, band_kg_week, protein_g_per_kg, fat_g_per_kg, "
@@ -221,8 +298,9 @@ TOOLS = [
     },
     {
         "name": "proponi_piano",
-        "description": "Propone un piano alimentare per un giorno, che sostituisce quello "
-        "attuale. I grammi passali già calcolati con calcola_pasto.",
+        "description": "Propone un piano nuovo per un'intera giornata, che sostituisce quello attuale, quando "
+        "l'utente chiede di costruirne uno. Per copiare un giorno o cambiare singoli alimenti usa gli strumenti "
+        "diretti.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -243,6 +321,61 @@ TOOLS = [
 ]
 
 
+ACTIONS = {
+    "aggiungi_alimento",
+    "modifica_grammi",
+    "elimina_alimento",
+    "segna_mangiato",
+    "salta_pasto",
+    "ripristina_pasto",
+    "copia_pasti",
+}
+
+
+def _shown(card: dict) -> dict:
+    return {"type": "proposal", "proposal": card}
+
+
+def _day_label(d: date, today: date) -> str:
+    rel = {0: "oggi", -1: "ieri", 1: "domani"}.get((d - today).days)
+    return rel or f"{WEEKDAYS[d.weekday()]} {d.day}"
+
+
+def _change_line(ch: dict) -> str:
+    where = SLOT_LABEL.get(ch["slot"], ch["slot"])
+    g = f"{round(ch['grams'])} g"
+    what = {
+        "add": "aggiunto " + ("mangiato" if ch["state"] == "eaten" else "da confermare"),
+        "remove": "tolto",
+        "grams": f"da {round(ch['from'] or 0)} a {round(ch['grams'])} g",
+        "eaten": "mangiato",
+        "skipped": "saltato",
+        "planned": "di nuovo da mangiare",
+    }[ch["kind"]]
+    return f"{where}: {ch['name']} {g} {what}" if ch["kind"] != "grams" else f"{where}: {ch['name']} {what}"
+
+
+def _meals_brief(view: dict) -> list[dict]:
+    return [
+        {
+            "slot": m["slot"],
+            "status": m["status"],
+            "kcal": m["macros"]["kcal"],
+            "items": [
+                {
+                    "ref": i["ref"],
+                    "state": i["state"],
+                    "food_id": i["food_id"],
+                    "name": i["name"],
+                    "grams": i["grams"],
+                }
+                for i in m["items"]
+            ],
+        }
+        for m in view["meals"]
+    ]
+
+
 class Agent:
     def __init__(self, app):
         self.app = app
@@ -261,7 +394,13 @@ class Agent:
         story = "(file mancante)"
         if self.cfg.story_path.exists():
             story = self.cfg.story_path.read_text(encoding="utf-8")
-        return SYSTEM.format(today=self.cfg.today().isoformat(), source=self.app.source.name, story=story)
+        today = self.cfg.today()
+        return SYSTEM.format(
+            weekday=WEEKDAYS[today.weekday()],
+            today=today.isoformat(),
+            source=self.app.source.name,
+            story=story,
+        )
 
     # tools
 
@@ -287,43 +426,14 @@ class Agent:
         return {"proposal_id": pid, "kind": kind, "summary": summary, **payload}
 
     def run_tool(self, name: str, args: dict) -> tuple[dict | list | str, dict | None]:
-        """Returns (result for the model, proposal card for the UI or None)."""
+        """Returns (result for the model, event for the UI: a proposal card or an action receipt, or None)."""
         today = self.cfg.today()
         c = self.coach
         if name == "oggi":
             d = date.fromisoformat(args["day"]) if args.get("day") else today
             v = c.today(d, today)
-            return {
-                k: v[k]
-                for k in (
-                    "day",
-                    "targets",
-                    "target_loggable",
-                    "consumed",
-                    "remaining",
-                    "expenditure",
-                    "weight",
-                )
-            } | {
-                "meals": [
-                    {
-                        "slot": m["slot"],
-                        "status": m["status"],
-                        "kcal": m["macros"]["kcal"],
-                        "items": [
-                            {
-                                "ref": i["ref"],
-                                "state": i["state"],
-                                "food_id": i["food_id"],
-                                "name": i["name"],
-                                "grams": i["grams"],
-                            }
-                            for i in m["items"]
-                        ],
-                    }
-                    for m in v["meals"]
-                ]
-            }, None
+            keys = ("day", "targets", "target_loggable", "consumed", "remaining", "expenditure", "weight")
+            return {k: v[k] for k in keys} | {"meals": _meals_brief(v)}, None
         if name == "progressi":
             p = c.progress(today, 42)
             return {
@@ -428,34 +538,14 @@ class Agent:
             if not args.get("name"):
                 return self.book.references(), None
             return self.book.reference(args["name"]), None
-        if name == "proponi_registrazione":
-            items = self._food_items(args["items"])
-            d = args.get("day") or today.isoformat()
-            card = self._proposal(
-                "log",
-                {
-                    "day": d,
-                    "slot": args["slot"],
-                    "items": [
-                        {
-                            "food_id": i.food.id,
-                            "name": i.food.name,
-                            "grams": i.grams,
-                            **macros_dict(i.macros()),
-                        }
-                        for i in items
-                    ],
-                    "total": macros_dict(totals([Meal("x", items)])),
-                },
-                args["summary"],
-            )
-            return {"ok": "proposta mostrata all'utente", "proposal_id": card["proposal_id"]}, card
+        if name in ACTIONS:
+            return self._action(name, args, today)
         if name == "proponi_fase":
             payload = {"template_id": args.get("template_id"), "changes": args.get("changes") or {}}
             p = c.phase()
             payload["current"] = p and p.model_dump(mode="json")
             card = self._proposal("phase", payload, args["summary"])
-            return {"ok": "proposta mostrata all'utente", "proposal_id": card["proposal_id"]}, card
+            return {"ok": "proposta mostrata all'utente", "proposal_id": card["proposal_id"]}, _shown(card)
         if name == "proponi_piano":
             meals = []
             for m in args["meals"]:
@@ -484,8 +574,88 @@ class Agent:
                 {"day": args["day"], "meals": meals, "total": macros_dict(totals([Meal("x", all_items)]))},
                 args["summary"],
             )
-            return {"ok": "proposta mostrata all'utente", "proposal_id": card["proposal_id"]}, card
+            return {"ok": "proposta mostrata all'utente", "proposal_id": card["proposal_id"]}, _shown(card)
         raise CoachError(f"strumento {name} sconosciuto")
+
+    def _action(self, name: str, args: dict, today: date) -> tuple[dict, dict]:
+        """Run a meal or food change at once, through the same service methods the app uses."""
+        c = self.coach
+        day = date.fromisoformat(args.get("target") or args.get("day") or today.isoformat())
+        slot = args.get("slot")
+        if slot is not None and slot not in SLOTS:
+            raise CoachError(f"pasto {slot!r} sconosciuto: {', '.join(SLOTS)}")
+        meal = SLOT_LABEL.get(slot or "", "")
+        when = _day_label(day, today)
+        if name == "aggiungi_alimento":
+            f = c.foods().get(args["food_id"])
+            if f is None:
+                raise CoachError(f"food_id {args['food_id']!r} sconosciuto: usa cerca_alimento")
+            eaten = bool(args.get("eaten"))
+            title = f"{f.name} in {meal.lower()} {when}, {'mangiato' if eaten else 'da confermare'}"
+            run = partial(c.add_item, day, slot, f.id, float(args["grams"]), today, eaten)
+        elif name == "modifica_grammi":
+            title = f"Grammi cambiati {when}"
+            run = partial(c.update_item, day, args["ref"], float(args["grams"]), today)
+        elif name == "elimina_alimento":
+            title = f"Alimento tolto {when}"
+            run = partial(c.delete_item, day, args["ref"], today)
+        elif name == "segna_mangiato":
+            title = f"{meal} {when} segnato come mangiato"
+            run = partial(c.confirm_items, day, slot, today, args.get("refs"))
+        elif name == "salta_pasto":
+            title = f"{meal} {when} saltato"
+            run = partial(c.skip_meal, day, slot, today)
+        elif name == "ripristina_pasto":
+            title = f"{meal} {when} di nuovo da mangiare"
+            run = partial(c.undo_meal, day, slot, today)
+        else:
+            source = date.fromisoformat(args["source"])
+            slots = args.get("slots") or None
+            what = "tutti i pasti" if slots is None else ", ".join(SLOT_LABEL[s].lower() for s in slots)
+            title = f"Copiato {what} da {_day_label(source, today)} in {when}, stessi grammi"
+            if slots is None:
+                run = partial(c.repeat_day, source, day, today)
+            else:
+                run = partial(c.copy_meals, source, day, slots, today)
+
+        c.plan(day, today)  # a plan built on first view is not part of the change
+        before = c.snapshot(day)
+        view = run()
+        after = c.snapshot(day)
+        changes = c.changes(before, after)
+        receipt = {"day": day.isoformat(), "title": title, "changes": changes}
+        aid = self.store.x(
+            "insert into actions(created,day,receipt,before,after) values(?,?,?,?,?)",
+            now(),
+            day.isoformat(),
+            json.dumps(receipt),
+            json.dumps(before),
+            json.dumps(after),
+        )
+        receipt = {"action_id": aid, "status": "done", **receipt}
+        return {
+            "fatto": title,
+            "action_id": aid,
+            "modifiche": [_change_line(ch) for ch in changes] or ["nessuna modifica"],
+            "pasti": _meals_brief(view),
+        }, {"type": "action", "action": receipt}
+
+    def undo(self, aid: int) -> dict:
+        """Annulla under a receipt: the day goes back to how it was before that action. Only while
+        nothing changed the day since, so a later edit is never lost."""
+        rows = self.store.q("select * from actions where id=?", aid)
+        if not rows:
+            raise CoachError("Azione inesistente")
+        if rows[0]["status"] != "done":
+            raise CoachError("Azione già annullata")
+        day = date.fromisoformat(rows[0]["day"])
+        c = self.coach
+        if c.day_state(c.snapshot(day)) != c.day_state(json.loads(rows[0]["after"])):
+            raise CoachError("La giornata è cambiata dopo questa azione: annullala a mano dai pasti.")
+        view = c.restore(day, json.loads(rows[0]["before"]), self.cfg.today())
+        self.store.x("update actions set status='undone' where id=?", aid)
+        self.app.syncer.push()
+        return {"ok": True, "day": day.isoformat(), "view": view}
 
     # conversation
 
@@ -542,7 +712,7 @@ class Agent:
         self.save("user", text)
         messages = self.history()
         system = [{"type": "text", "text": self.system(), "cache_control": {"type": "ephemeral"}}]
-        said = False
+        said = acted = False
         for _ in range(MAX_STEPS):
             final = Final()
             first = True
@@ -580,9 +750,10 @@ class Agent:
             for u in uses:
                 yield {"type": "tool", "name": u["name"], "label": TOOL_LABELS.get(u["name"], u["name"])}
                 try:
-                    out, card = self.run_tool(u["name"], u.get("input") or {})
-                    if card:
-                        yield {"type": "proposal", "proposal": card}
+                    out, event = self.run_tool(u["name"], u.get("input") or {})
+                    if event:
+                        acted = acted or event["type"] == "action"
+                        yield event
                     results.append(
                         {
                             "type": "tool_result",
@@ -601,6 +772,8 @@ class Agent:
                     )
             self.save("user", results)
             messages.append({"role": "user", "content": results})
+        if acted:
+            await asyncio.to_thread(self.app.syncer.push)
         yield {"type": "done"}
 
     def apply(self, pid: int) -> dict:
@@ -714,7 +887,13 @@ def chat_history(request: Request):
                         res = json.loads(b["content"])
                     except ValueError, TypeError:
                         continue
-                    if isinstance(res, dict) and res.get("proposal_id"):
+                    if isinstance(res, dict) and res.get("action_id"):
+                        act = store.q("select receipt, status from actions where id=?", res["action_id"])
+                        if act:
+                            receipt = json.loads(act[0]["receipt"])
+                            action = {"action_id": res["action_id"], "status": act[0]["status"], **receipt}
+                            out.append({"role": "action", "action": action})
+                    elif isinstance(res, dict) and res.get("proposal_id"):
                         pr = store.q("select * from proposals where id=?", res["proposal_id"])
                         if pr:
                             payload = json.loads(pr[0]["payload"])
@@ -741,6 +920,11 @@ def chat_clear(request: Request):
 @router.post("/api/proposals/{pid}/apply")
 def apply(pid: int, request: Request):
     return _agent(request).apply(pid)
+
+
+@router.post("/api/actions/{aid}/undo")
+def undo(aid: int, request: Request):
+    return _agent(request).undo(aid)
 
 
 @router.post("/api/proposals/{pid}/dismiss")
