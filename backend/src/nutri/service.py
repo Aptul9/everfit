@@ -741,6 +741,84 @@ class Coach:
         self._save(target, plan)
         return self.today(target, today)
 
+    def snapshot(self, day: date) -> dict:
+        """Everything a change to a day can touch, to put it back later: the stored plan, the diary
+        entries and the day's complete mark."""
+        mark = self.store.q("select marked_complete from diary_days where day=?", day.isoformat())
+        return {
+            "day": day.isoformat(),
+            "plan": self.store.plan(day),
+            "entries": [[r["slot"], r["food_id"], round(r["grams"], 1)] for r in self.store.entries(day)],
+            "marked": mark[0]["marked_complete"] if mark else None,
+        }
+
+    def day_state(self, snap: dict) -> list[tuple]:
+        """A snapshot as (slot, state, food_id, grams): what the day shows, whatever the sync did since."""
+        out = [(s, "eaten", f, g) for s, f, g in snap["entries"]]
+        if snap["plan"]:
+            for m in self._normalize(json.loads(json.dumps(snap["plan"])))["meals"]:
+                state = "skipped" if m["skipped"] else "planned"
+                out += [(m["slot"], state, i["food_id"], round(i["grams"], 1)) for i in m["items"]]
+        return sorted(out)
+
+    def changes(self, before: dict, after: dict) -> list[dict]:
+        """What happened to a day between two snapshots, food by food."""
+        foods = self.foods()
+        removed, added = list(self.day_state(before)), []
+        for x in self.day_state(after):
+            if x in removed:
+                removed.remove(x)
+            else:
+                added.append(x)
+        out = []
+        for slot, state, fid, grams in added:
+            old = next((y for y in removed if y[0] == slot and y[2] == fid), None)
+            if old:
+                removed.remove(old)
+            kind = "add"
+            if old and old[1] == state:
+                kind = "grams"
+            elif old:
+                kind = {"eaten": "eaten", "skipped": "skipped"}.get(state, "planned")
+            out.append(
+                {
+                    "slot": slot,
+                    "kind": kind,
+                    "state": state,
+                    "name": foods[fid].name if fid in foods else fid,
+                    "grams": grams,
+                    "from": old[3] if old else None,
+                }
+            )
+        for slot, state, fid, grams in removed:
+            name = foods[fid].name if fid in foods else fid
+            out.append(
+                {"slot": slot, "kind": "remove", "state": state, "name": name, "grams": grams, "from": None}
+            )
+        return sorted(out, key=lambda c: SLOT_ORDER.index(c["slot"]) if c["slot"] in SLOT_ORDER else 9)
+
+    def restore(self, day: date, snap: dict, today: date) -> dict:
+        """Put a day back as a snapshot had it. Entries that left Cronometer are logged again and entries
+        added since are deleted there, through the outbox like any other edit."""
+        plan = self._ensure_plan(day, today)
+        want = [tuple(e) for e in snap["entries"]]
+        for r in self.store.entries(day):
+            k = (r["slot"], r["food_id"], round(r["grams"], 1))
+            if k in want:
+                want.remove(k)
+            else:
+                self._unlog(day, plan, r)
+        for slot, food_id, grams in want:
+            self._log_entry(day, plan, slot, food_id, grams)
+        if snap["plan"] is None:
+            self.store.x("delete from plans where day=?", day.isoformat())
+        else:
+            self.store.put_plan(day, snap["plan"])
+        if bool(self.snapshot(day)["marked"]) != bool(snap["marked"]):
+            self.store.enqueue("mark_complete", {"day": day.isoformat(), "complete": bool(snap["marked"])})
+            self.store.set_marked(day, True if snap["marked"] else None)
+        return self.today(day, today)
+
     def _maybe_complete(self, day: date, plan: dict) -> None:
         if any(m["items"] and not m["skipped"] for m in plan["meals"]) or not self.store.entries(day):
             return
