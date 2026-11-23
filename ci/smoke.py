@@ -52,10 +52,12 @@ check("pwa manifest", r.status == 200 and json.loads(data)["name"] == "EverFit")
 if args.demo:
     r, data = request("GET", "/api/today")
     today = json.loads(data) if r.status == 200 else {}
-    check("today", bool(today.get("plan", {}).get("meals")))
-    slot = today["plan"]["meals"][0]["slot"] if today.get("plan") else "colazione"
+    meals = today.get("meals") or []
+    check("today", len(meals) == 4)
+    slot = next((m["slot"] for m in meals if m["planned"]["kcal"] > 0), "cena")
     r, data = request("POST", f"/api/plan/{today.get('day')}/meals/{slot}/confirm", {})
-    check("confirm a meal", r.status == 200 and json.loads(data)["consumed"]["kcal"] > 0)
+    eaten = json.loads(data)["consumed"]["kcal"] if r.status == 200 else 0
+    check("confirm a meal", eaten > today.get("consumed", {}).get("kcal", 0))
     r, data = request("GET", "/api/progress")
     check("progress", r.status == 200 and json.loads(data)["expenditure"]["status"] == "data")
     r, data = request("GET", "/api/checkin")
